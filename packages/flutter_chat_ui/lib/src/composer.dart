@@ -359,5 +359,6 @@ class _ComposerState extends State<Composer> {
       context.read<OnMessageSendCallback?>()?.call(trimmed);
       _textController.clear();
     }
+    _hasTextNotifier.value = false;
   }
 }
