@@ -2,20 +2,22 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:dio/dio.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
+import 'package:flutter_link_previewer/flutter_link_previewer.dart';
 import 'package:flyer_chat_file_message/flyer_chat_file_message.dart';
 import 'package:flyer_chat_image_message/flyer_chat_image_message.dart';
+import 'package:flyer_chat_reactions/flyer_chat_reactions.dart';
 import 'package:flyer_chat_system_message/flyer_chat_system_message.dart';
 import 'package:flyer_chat_text_message/flyer_chat_text_message.dart';
 import 'package:flyer_chat_video_message/flyer_chat_video_message.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
-import 'package:pull_down_button/pull_down_button.dart';
 import 'package:thumbhash/thumbhash.dart' show rgbaToThumbHash;
 import 'package:uuid/uuid.dart';
 import 'package:video_thumbnail/video_thumbnail.dart';
@@ -87,10 +89,9 @@ class LocalState extends State<Local> {
                   vertical: 10,
                 ),
                 decoration: BoxDecoration(
-                  color:
-                      theme.brightness == Brightness.dark
-                          ? ChatColors.dark().surfaceContainer
-                          : ChatColors.light().surfaceContainer,
+                  color: theme.brightness == Brightness.dark
+                      ? ChatColors.dark().surfaceContainer
+                      : ChatColors.light().surfaceContainer,
                   borderRadius: const BorderRadius.all(Radius.circular(12)),
                 ),
                 child: IsTypingIndicator(),
@@ -120,29 +121,47 @@ class LocalState extends State<Local> {
                 required bool isSentByMe,
                 MessageGroupStatus? groupStatus,
               }) => FlyerChatSystemMessage(message: message, index: index),
-          composerBuilder:
-              (context) => Composer(
-                topWidget: ComposerActionBar(
-                  buttons: [
-                    ComposerActionButton(
-                      icon: Icons.type_specimen,
-                      title: 'Toggle typing',
-                      onPressed: () => _toggleTyping(),
-                    ),
-                    ComposerActionButton(
-                      icon: Icons.shuffle,
-                      title: 'Send random',
-                      onPressed: () => _addItem(null),
-                    ),
-                    ComposerActionButton(
-                      icon: Icons.delete_sweep,
-                      title: 'Clear all',
-                      onPressed: () => _chatController.setMessages([]),
-                      destructive: true,
-                    ),
-                  ],
+          composerBuilder: (context) => Composer(
+            topWidget: ComposerActionBar(
+              buttons: [
+                ComposerActionButton(
+                  icon: Icons.type_specimen,
+                  title: 'Toggle typing',
+                  onPressed: () => _toggleTyping(),
                 ),
-              ),
+                ComposerActionButton(
+                  icon: Icons.shuffle,
+                  title: 'Send random',
+                  onPressed: () => _addItem(null),
+                ),
+                ComposerActionButton(
+                  icon: Icons.delete_sweep,
+                  title: 'Clear all',
+                  onPressed: () => _chatController.setMessages([]),
+                  destructive: true,
+                ),
+              ],
+            ),
+          ),
+          linkPreviewBuilder: (context, message, isSentByMe) {
+            // It's up to you to (optionally) implement the logic to avoid every
+            // message to refetch the preview data
+            //
+            // For example, you can use a metadata to indicate if the preview
+            // was already fetched (or null).
+            //
+            // Additionally, you can cache the data to avoid re-fetching across app restarts.
+            return LinkPreview(
+              text: message.text,
+              linkPreviewData: message.linkPreviewData,
+              onLinkPreviewDataFetched: (linkPreviewData) {
+                _chatController.updateMessage(
+                  message,
+                  message.copyWith(linkPreviewData: linkPreviewData),
+                );
+              },
+            );
+          },
           textMessageBuilder:
               (
                 context,
@@ -159,87 +178,107 @@ class LocalState extends State<Local> {
                 required bool isSentByMe,
                 MessageGroupStatus? groupStatus,
               }) => FlyerChatFileMessage(message: message, index: index),
-          chatMessageBuilder: (
-            context,
-            message,
-            index,
-            animation,
-            child, {
-            bool? isRemoved,
-            required bool isSentByMe,
-            MessageGroupStatus? groupStatus,
-          }) {
-            final isSystemMessage = message.authorId == 'system';
-            final isFirstInGroup = groupStatus?.isFirst ?? true;
-            final isLastInGroup = groupStatus?.isLast ?? true;
-            final shouldShowAvatar =
-                !isSystemMessage && isLastInGroup && isRemoved != true;
-            final isCurrentUser = message.authorId == _currentUser.id;
-            final shouldShowUsername =
-                !isSystemMessage && isFirstInGroup && isRemoved != true;
+          chatMessageBuilder:
+              (
+                context,
+                message,
+                index,
+                animation,
+                child, {
+                bool? isRemoved,
+                required bool isSentByMe,
+                MessageGroupStatus? groupStatus,
+              }) {
+                final isSystemMessage = message.authorId == 'system';
+                final isFirstInGroup = groupStatus?.isFirst ?? true;
+                final isLastInGroup = groupStatus?.isLast ?? true;
+                final shouldShowAvatar =
+                    !isSystemMessage && isLastInGroup && isRemoved != true;
+                final isCurrentUser = message.authorId == _currentUser.id;
+                final shouldShowUsername =
+                    !isSystemMessage && isFirstInGroup && isRemoved != true;
 
-            Widget? avatar;
-            if (shouldShowAvatar) {
-              avatar = Padding(
-                padding: EdgeInsets.only(
-                  left: isCurrentUser ? 8 : 0,
-                  right: isCurrentUser ? 0 : 8,
-                ),
-                child: Avatar(userId: message.authorId),
-              );
-            } else if (!isSystemMessage) {
-              avatar = const SizedBox(width: 40);
-            }
+                Widget? avatar;
+                if (shouldShowAvatar) {
+                  avatar = Padding(
+                    padding: EdgeInsets.only(
+                      left: isCurrentUser ? 8 : 0,
+                      right: isCurrentUser ? 0 : 8,
+                    ),
+                    child: Avatar(userId: message.authorId),
+                  );
+                } else if (!isSystemMessage) {
+                  avatar = const SizedBox(width: 40);
+                }
 
-            return ChatMessage(
-              message: message,
-              index: index,
-              animation: animation,
-              isRemoved: isRemoved,
-              groupStatus: groupStatus,
-              topWidget:
-                  shouldShowUsername
+                return ChatMessage(
+                  message: message,
+                  index: index,
+                  animation: animation,
+                  isRemoved: isRemoved,
+                  groupStatus: groupStatus,
+                  topWidget: shouldShowUsername
                       ? Padding(
-                        padding: EdgeInsets.only(
-                          bottom: 4,
-                          left: isCurrentUser ? 0 : 48,
-                          right: isCurrentUser ? 48 : 0,
-                        ),
-                        child: Username(userId: message.authorId),
-                      )
+                          padding: EdgeInsets.only(
+                            bottom: 4,
+                            left: isCurrentUser ? 0 : 48,
+                            right: isCurrentUser ? 48 : 0,
+                          ),
+                          child: Username(userId: message.authorId),
+                        )
                       : null,
-              leadingWidget:
-                  !isCurrentUser
+                  leadingWidget: !isCurrentUser
                       ? avatar
                       : isSystemMessage
                       ? null
                       : const SizedBox(width: 40),
-              trailingWidget:
-                  isCurrentUser
+                  trailingWidget: isCurrentUser
                       ? avatar
                       : isSystemMessage
                       ? null
                       : const SizedBox(width: 40),
-              receivedMessageScaleAnimationAlignment:
-                  (message is SystemMessage)
+                  receivedMessageScaleAnimationAlignment:
+                      (message is SystemMessage)
                       ? Alignment.center
                       : Alignment.centerLeft,
-              receivedMessageAlignment:
-                  (message is SystemMessage)
+                  receivedMessageAlignment: (message is SystemMessage)
                       ? AlignmentDirectional.center
                       : AlignmentDirectional.centerStart,
-              horizontalPadding: (message is SystemMessage) ? 0 : 8,
-              child: child,
+                  horizontalPadding: (message is SystemMessage) ? 0 : 8,
+                  child: child,
+                );
+              },
+          reactionsBuilder: (context, message, isSentByMe) {
+            final reactions = reactionsFromMessageReactions(
+              reactions: message.reactions,
+              currentUserId: _currentUser.id,
+            );
+            return FlyerChatReactionsRow(
+              reactions: reactions,
+              alignment: isSentByMe
+                  ? MainAxisAlignment.start
+                  : MainAxisAlignment.end,
+
+              /// Open List on tap (WhatsApp Style)
+              // onReactionTap: (reaction) =>
+              //     showReactionsList(context: context, reactions: reactions),
+              /// Or react on tap (Slack Style)
+              onReactionTap: (reaction) =>
+                  _handleReactionTap(message, reaction),
+              removeOrAddLocallyOnTap: true,
+              onReactionLongPress: (reaction) =>
+                  showReactionsList(context: context, reactions: reactions),
+              onSurplusReactionTap: () =>
+                  showReactionsList(context: context, reactions: reactions),
             );
           },
         ),
         chatController: _chatController,
         currentUserId: _currentUser.id,
         decoration: BoxDecoration(
-          color:
-              theme.brightness == Brightness.dark
-                  ? ChatColors.dark().surface
-                  : ChatColors.light().surface,
+          color: theme.brightness == Brightness.dark
+              ? ChatColors.dark().surface
+              : ChatColors.light().surface,
           image: DecorationImage(
             image: AssetImage('assets/pattern.png'),
             repeat: ImageRepeat.repeat,
@@ -254,49 +293,103 @@ class LocalState extends State<Local> {
         onAttachmentTap: _handleAttachmentTap,
         onMessageLongPress: _handleMessageLongPress,
         onMessageSend: _addItem,
-        resolveUser:
-            (id) => Future.value(switch (id) {
-              'me' => _currentUser,
-              'recipient' => _recipient,
-              'system' => _systemUser,
-              _ => null,
-            }),
-        theme:
-            theme.brightness == Brightness.dark
-                ? ChatTheme.dark()
-                : ChatTheme.light(),
+        resolveUser: (id) => Future.value(switch (id) {
+          'me' => _currentUser,
+          'recipient' => _recipient,
+          'system' => _systemUser,
+          _ => null,
+        }),
+        theme: theme.brightness == Brightness.dark
+            ? ChatTheme.dark()
+            : ChatTheme.light(),
       ),
     );
   }
 
   void _handleMessageLongPress(
+    BuildContext context,
     Message message, {
     int? index,
     LongPressStartDetails? details,
+    required bool isSentByMe,
   }) async {
-    // Skip showing menu for system messages
-    if (message.authorId == 'system' || details == null) return;
-
-    // Calculate position for the menu
-    final position = details.globalPosition;
-
-    // Create a Rect for the menu position (small area around tap point)
-    final menuRect = Rect.fromCenter(
-      center: position,
-      width: 0, // Width and height of 0 means show exactly at the point
-      height: 0,
+    showReactionsDialog(
+      context,
+      message,
+      isSentByMe: isSentByMe,
+      // reactions: ['📌'], // The default reactions to propose in the dialog
+      userReactions: getUserReactions(message.reactions, _currentUser.id),
+      onReactionTap: (reaction) => _handleReactionTap(message, reaction),
+      onMoreReactionsTap: () async {
+        // Use whichever emoji picker you want
+        final picked = await _showEmojiPicker();
+        if (picked != null) {
+          _handleReactionTap(message, picked);
+        }
+      },
+      menuItems: _getMenuItems(message),
     );
+  }
+
+  Future<String?> _showEmojiPicker() {
+    return showModalBottomSheet(
+      context: context,
+      useSafeArea: true,
+      builder: (context) => EmojiPicker(
+        onEmojiSelected: (Category? category, Emoji emoji) {
+          Navigator.of(context).pop(emoji.emoji);
+        },
+        config: Config(
+          height: 250,
+          checkPlatformCompatibility: false,
+          viewOrderConfig: const ViewOrderConfig(),
+          skinToneConfig: const SkinToneConfig(),
+          categoryViewConfig: const CategoryViewConfig(),
+          bottomActionBarConfig: const BottomActionBarConfig(enabled: false),
+          searchViewConfig: const SearchViewConfig(),
+        ),
+      ),
+    );
+  }
+
+  void _handleReactionTap(Message message, String reaction) {
+    debugPrint('reaction Tapped: $reaction');
+    // Maybe the lib could expose if it's a removal or at least helpers methods
+    final reactions = Map<String, List<String>>.from(message.reactions ?? {});
+    final userId = _currentUser.id;
+
+    final users = List<String>.from(reactions[reaction] ?? []);
+    if (users.contains(userId)) {
+      users.remove(userId);
+      if (users.isEmpty) {
+        reactions.remove(reaction); // Remove the key if no users left
+      } else {
+        reactions[reaction] = users;
+      }
+    } else {
+      users.add(userId);
+      reactions[reaction] = users;
+    }
+
+    _chatController.updateMessage(
+      message,
+      message.copyWith(reactions: reactions),
+    );
+  }
+
+  List<MenuItem> _getMenuItems(Message message) {
+    if (message.authorId == 'system') return [];
 
     final items = [
       if (message is TextMessage)
-        PullDownMenuItem(
+        MenuItem(
           title: 'Copy',
           icon: CupertinoIcons.doc_on_doc,
           onTap: () {
             _copyMessage(message);
           },
         ),
-      PullDownMenuItem(
+      MenuItem(
         title: 'Delete',
         icon: CupertinoIcons.delete,
         isDestructive: true,
@@ -305,8 +398,7 @@ class LocalState extends State<Local> {
         },
       ),
     ];
-
-    await showPullDownMenu(context: context, position: menuRect, items: items);
+    return items;
   }
 
   void _copyMessage(TextMessage message) async {
@@ -441,10 +533,9 @@ class LocalState extends State<Local> {
                       source: filePath,
                       name: fileName,
                       size: fileSize,
-                      mimeType:
-                          file.extension != null
-                              ? 'application/${file.extension}'
-                              : null,
+                      mimeType: file.extension != null
+                          ? 'application/${file.extension}'
+                          : null,
                     );
 
                     await _chatController.insertMessage(fileMessage);

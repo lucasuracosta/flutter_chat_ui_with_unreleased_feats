@@ -29,6 +29,10 @@ class Gemini extends StatefulWidget {
 }
 
 class GeminiState extends State<Gemini> {
+  // Set to `true` to show a "Thinking..." message immediately.
+  // Set to `false` to wait for the first chunk before showing the message.
+  final bool _isThinkingModel = false;
+
   final _uuid = const Uuid();
   final _crossCache = CrossCache();
   final _scrollController = ScrollController();
@@ -68,11 +72,10 @@ class GeminiState extends State<Gemini> {
     );
 
     _chatSession = _model.startChat(
-      history:
-          _chatController.messages
-              .whereType<TextMessage>()
-              .map((message) => Content.text(message.text))
-              .toList(),
+      history: _chatController.messages
+          .whereType<TextMessage>()
+          .map((message) => Content.text(message.text))
+          .toList(),
     );
   }
 
@@ -159,24 +162,23 @@ class GeminiState extends State<Gemini> {
                   showTime: false,
                   showStatus: false,
                 ),
-            composerBuilder:
-                (context) => CustomComposer(
-                  isStreaming: _isStreaming,
-                  onStop: _stopCurrentStream,
-                  topWidget: ComposerActionBar(
-                    buttons: [
-                      ComposerActionButton(
-                        icon: Icons.delete_sweep,
-                        title: 'Clear all',
-                        onPressed: () {
-                          _chatController.setMessages([]);
-                          _chatSession = _model.startChat();
-                        },
-                        destructive: true,
-                      ),
-                    ],
+            composerBuilder: (context) => CustomComposer(
+              isStreaming: _isStreaming,
+              onStop: _stopCurrentStream,
+              topWidget: ComposerActionBar(
+                buttons: [
+                  ComposerActionButton(
+                    icon: Icons.delete_sweep,
+                    title: 'Clear all',
+                    onPressed: () {
+                      _chatController.setMessages([]);
+                      _chatSession = _model.startChat();
+                    },
+                    destructive: true,
                   ),
-                ),
+                ],
+              ),
+            ),
             textMessageBuilder:
                 (
                   context,
@@ -190,55 +192,53 @@ class GeminiState extends State<Gemini> {
                   showTime: false,
                   showStatus: false,
                   receivedBackgroundColor: Colors.transparent,
-                  padding:
-                      message.authorId == _agent.id
-                          ? EdgeInsets.zero
-                          : const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 10,
-                          ),
-                ),
-            textStreamMessageBuilder: (
-              context,
-              message,
-              index, {
-              required bool isSentByMe,
-              MessageGroupStatus? groupStatus,
-            }) {
-              // Watch the manager for state updates
-              final streamState = context.watch<GeminiStreamManager>().getState(
-                message.streamId,
-              );
-              // Return the stream message widget, passing the state
-              return FlyerChatTextStreamMessage(
-                message: message,
-                index: index,
-                streamState: streamState,
-                chunkAnimationDuration: _kChunkAnimationDuration,
-                showTime: false,
-                showStatus: false,
-                receivedBackgroundColor: Colors.transparent,
-                padding:
-                    message.authorId == _agent.id
-                        ? EdgeInsets.zero
-                        : const EdgeInsets.symmetric(
+                  padding: message.authorId == _agent.id
+                      ? EdgeInsets.zero
+                      : const EdgeInsets.symmetric(
                           horizontal: 16,
                           vertical: 10,
                         ),
-              );
-            },
+                ),
+            textStreamMessageBuilder:
+                (
+                  context,
+                  message,
+                  index, {
+                  required bool isSentByMe,
+                  MessageGroupStatus? groupStatus,
+                }) {
+                  // Watch the manager for state updates
+                  final streamState = context
+                      .watch<GeminiStreamManager>()
+                      .getState(message.streamId);
+                  // Return the stream message widget, passing the state
+                  return FlyerChatTextStreamMessage(
+                    message: message,
+                    index: index,
+                    streamState: streamState,
+                    chunkAnimationDuration: _kChunkAnimationDuration,
+                    showTime: false,
+                    showStatus: false,
+                    receivedBackgroundColor: Colors.transparent,
+                    padding: message.authorId == _agent.id
+                        ? EdgeInsets.zero
+                        : const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                  );
+                },
           ),
           chatController: _chatController,
           crossCache: _crossCache,
           currentUserId: _currentUser.id,
           onAttachmentTap: _handleAttachmentTap,
           onMessageSend: _handleMessageSend,
-          resolveUser:
-              (id) => Future.value(switch (id) {
-                'me' => _currentUser,
-                'agent' => _agent,
-                _ => null,
-              }),
+          resolveUser: (id) => Future.value(switch (id) {
+            'me' => _currentUser,
+            'agent' => _agent,
+            _ => null,
+          }),
           theme: ChatTheme.fromThemeData(theme),
         ),
       ),
@@ -289,7 +289,10 @@ class GeminiState extends State<Gemini> {
     final streamId = _uuid.v4();
     _currentStreamId = streamId;
     TextStreamMessage? streamMessage;
-    var isFirstChunk = true;
+    Timer? thinkingTimer;
+
+    // A flag to ensure the message is created only once.
+    var messageInserted = false;
 
     // Store scroll state per stream ID
     _reachedTargetScroll[streamId] = false;
@@ -298,6 +301,43 @@ class GeminiState extends State<Gemini> {
     setState(() {
       _isStreaming = true;
     });
+
+    // Helper to create and insert the message, ensuring it only happens once.
+    Future<void> createAndInsertMessage() async {
+      if (messageInserted || !mounted) return;
+      messageInserted = true;
+
+      // If the timer is still active, we beat it. Cancel it.
+      thinkingTimer?.cancel();
+
+      streamMessage = TextStreamMessage(
+        id: streamId,
+        authorId: _agent.id,
+        createdAt: DateTime.now().toUtc(),
+        streamId: streamId,
+      );
+      await _chatController.insertMessage(streamMessage!);
+      _streamManager.startStream(streamId, streamMessage!);
+    }
+
+    if (_isThinkingModel) {
+      // For thinking models, schedule the message insertion after a delay.
+      thinkingTimer = Timer(const Duration(milliseconds: 300), () async {
+        await createAndInsertMessage();
+        // When timer fires, message is inserted, scroll to the bottom.
+        // This is needed because we use shouldScrollToEndWhenAtBottom: false,
+        // due to custom scroll logic below, so we must also scroll to the
+        // thinking label manually.
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          if (!_scrollController.hasClients || !mounted) return;
+          await _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.linearToEaseOut,
+          );
+        });
+      });
+    }
 
     try {
       final response = _chatSession.sendMessageStream(content);
@@ -309,18 +349,11 @@ class GeminiState extends State<Gemini> {
             final textChunk = chunk.text!;
             if (textChunk.isEmpty) return; // Skip empty chunks
 
-            if (isFirstChunk) {
-              isFirstChunk = false;
-
-              // Create and insert the message ON the first chunk
-              streamMessage = TextStreamMessage(
-                id: streamId,
-                authorId: _agent.id,
-                createdAt: DateTime.now().toUtc(),
-                streamId: streamId,
-              );
-              await _chatController.insertMessage(streamMessage!);
-              _streamManager.startStream(streamId, streamMessage!);
+            // On the first valid chunk, ensure the message is inserted.
+            // This handles both non-thinking models and thinking models where
+            // the response arrives before the timer.
+            if (!messageInserted) {
+              await createAndInsertMessage();
             }
 
             // Ensure stream message exists before adding chunk
@@ -340,9 +373,8 @@ class GeminiState extends State<Gemini> {
               if (reachedTarget) return; // Already scrolled to target
 
               // Store initial extent after first chunk caused rebuild
-              initialExtent ??=
-                  _initialScrollExtents[streamId] =
-                      _scrollController.position.maxScrollExtent;
+              initialExtent ??= _initialScrollExtents[streamId] =
+                  _scrollController.position.maxScrollExtent;
 
               // Only scroll if the list is scrollable
               if (initialExtent > 0) {
@@ -374,6 +406,7 @@ class GeminiState extends State<Gemini> {
           }
         },
         onDone: () async {
+          thinkingTimer?.cancel();
           // Stream completed successfully (only if message was created)
           if (streamMessage != null) {
             await _streamManager.completeStream(streamId);
@@ -393,10 +426,12 @@ class GeminiState extends State<Gemini> {
           _reachedTargetScroll.remove(streamId);
         },
         onError: (error) async {
+          thinkingTimer?.cancel();
           _handleStreamError(streamId, error, streamMessage);
         },
       );
     } catch (error) {
+      thinkingTimer?.cancel();
       // Catch other potential errors during stream processing
       _handleStreamError(streamId, error, streamMessage);
     }
@@ -489,10 +524,10 @@ class _CustomComposerState extends State<CustomComposer> {
                   children: [
                     onAttachmentTap != null
                         ? IconButton(
-                          icon: const Icon(Icons.attachment),
-                          color: theme.onSurface.withValues(alpha: 0.5),
-                          onPressed: onAttachmentTap,
-                        )
+                            icon: const Icon(Icons.attachment),
+                            color: theme.onSurface.withValues(alpha: 0.5),
+                            onPressed: onAttachmentTap,
+                          )
                         : const SizedBox.shrink(),
                     const SizedBox(width: 8),
                     Expanded(
@@ -528,15 +563,13 @@ class _CustomComposerState extends State<CustomComposer> {
                     ),
                     const SizedBox(width: 8),
                     IconButton(
-                      icon:
-                          widget.isStreaming
-                              ? const Icon(Icons.stop_circle)
-                              : const Icon(Icons.send),
+                      icon: widget.isStreaming
+                          ? const Icon(Icons.stop_circle)
+                          : const Icon(Icons.send),
                       color: theme.onSurface.withValues(alpha: 0.5),
-                      onPressed:
-                          widget.isStreaming
-                              ? widget.onStop
-                              : () => _handleSubmitted(_textController.text),
+                      onPressed: widget.isStreaming
+                          ? widget.onStop
+                          : () => _handleSubmitted(_textController.text),
                     ),
                   ],
                 ),

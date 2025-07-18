@@ -1,3 +1,25 @@
+## 2.7.0
+
+ - **FEAT**: link preview package ([#790](https://github.com/flyerhq/flutter_chat_ui/issues/790)). ([2938f646](https://github.com/flyerhq/flutter_chat_ui/commit/2938f646f3167fb9ab65ca769f2326801db45c52))
+
+## 2.6.2
+
+ - **FIX**: new loadingBuilder for stream message. ([38d539ac](https://github.com/flyerhq/flutter_chat_ui/commit/38d539ac7480392d223885a3378deee2b86b5966))
+
+## 2.6.1
+
+ - **FIX**: add sendButtonDisabled and sendButtonHidden [#828](https://github.com/flyerhq/flutter_chat_ui/issues/828). ([d476dd45](https://github.com/flyerhq/flutter_chat_ui/commit/d476dd4502df51148621577f9c66843cd3a067ab))
+
+## 2.6.0
+
+ - **FIX**: scrollToIndex does not work when starting with an empty list [#793](https://github.com/flyerhq/flutter_chat_ui/issues/793). ([1948c1f5](https://github.com/flyerhq/flutter_chat_ui/commit/1948c1f5c421d40ee8d276230eec295ca6b41d05))
+ - **FEAT**: add sendButtonVisibilityMode and allowEmptyMessage to the composer. ([7a496607](https://github.com/flyerhq/flutter_chat_ui/commit/7a496607966f0e976ccefdc80ac5b42e4bf59f8f))
+ - **FEAT**: add method OnMessageDoubleTapCallback; add param BuildContext context for OnMessageTapCallback and OnMessageLongPressCallback ([#817](https://github.com/flyerhq/flutter_chat_ui/issues/817)). ([6fe68886](https://github.com/flyerhq/flutter_chat_ui/commit/6fe688866c631a4976ec85e9adda210c58457d21))
+
+## 2.5.3
+
+ - **FIX**: update dependencies. ([a8ff8b57](https://github.com/flyerhq/flutter_chat_ui/commit/a8ff8b573a25146d5c78b1014c9caa3126d1de40))
+
 ## 2.5.2
 
  - Update a dependency to the latest release.
