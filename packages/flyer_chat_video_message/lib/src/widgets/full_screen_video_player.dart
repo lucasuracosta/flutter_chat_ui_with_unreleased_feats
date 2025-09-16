@@ -69,7 +69,11 @@ class _FullscreenVideoPlayerState extends State<FullscreenVideoPlayer> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(),
+      appBar: AppBar(
+        toolbarHeight: 40,
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.black,
+      ),
       backgroundColor: widget.backgroundColor,
       body: SafeArea(
         child: Hero(
