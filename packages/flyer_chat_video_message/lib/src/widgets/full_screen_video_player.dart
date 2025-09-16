@@ -72,7 +72,6 @@ class _FullscreenVideoPlayerState extends State<FullscreenVideoPlayer> {
       appBar: AppBar(
         toolbarHeight: 40,
         backgroundColor: Colors.black,
-        foregroundColor: Colors.black,
       ),
       backgroundColor: widget.backgroundColor,
       body: SafeArea(
