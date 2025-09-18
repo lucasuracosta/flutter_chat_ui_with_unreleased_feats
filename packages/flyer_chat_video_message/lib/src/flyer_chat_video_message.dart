@@ -232,6 +232,7 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
       child: Container(
         constraints: widget.constraints,
         padding: widget.containerPadding,
+        color: _resolveBackgroundColor(isSentByMe, theme),
         child: ClipRRect(
           borderRadius: (widget.borderRadius ?? theme.shape) * 0.8,
           child: AspectRatio(
