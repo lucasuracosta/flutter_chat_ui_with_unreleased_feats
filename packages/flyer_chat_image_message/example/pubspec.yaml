@@ -1,0 +1,35 @@
+name: flyer_chat_image_message_example
+description: Example app for the flyer_chat_image_message package.
+version: 1.0.0+1
+publish_to: "none"
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"
+  flutter: ">=3.29.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flyer_chat_image_message:
+    path: ../
+  flutter_chat_core:
+    path: ../../flutter_chat_core
+  flutter_chat_ui:
+    path: ../../flutter_chat_ui
+  cross_cache:
+    path: ../../cross_cache
+  provider: ^6.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+dependency_overrides:
+  flutter_chat_core:
+    path: ../../flutter_chat_core
+  cross_cache:
+    path: ../../cross_cache
+
+flutter:
+  uses-material-design: true
