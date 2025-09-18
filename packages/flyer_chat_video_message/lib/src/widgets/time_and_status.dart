@@ -69,7 +69,7 @@ class TimeAndStatus extends StatelessWidget {
                 color: textStyle?.color,
                 size:
                     (textStyle?.fontSize != null
-                        ? textStyle!.fontSize! + 1
+                        ? textStyle!.fontSize! + 2
                         : 12),
               ),
         ],
