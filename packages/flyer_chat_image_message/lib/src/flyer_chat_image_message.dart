@@ -108,6 +108,9 @@ class FlyerChatImageMessage extends StatefulWidget {
   /// Padding for the accompanying text.
   final EdgeInsetsGeometry? textPadding;
 
+  /// Padding inside the message container which creates a border around the image.
+  final EdgeInsetsGeometry? containerPadding;
+
   /// Creates a widget to display an image message.
   const FlyerChatImageMessage({
     super.key,
@@ -135,6 +138,7 @@ class FlyerChatImageMessage extends StatefulWidget {
     this.sentTextStyle,
     this.receivedTextStyle,
     this.textPadding = const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    this.containerPadding = EdgeInsets.zero,
   });
 
   @override
@@ -288,6 +292,7 @@ class _FlyerChatImageMessageState extends State<FlyerChatImageMessage>
       borderRadius: widget.borderRadius ?? theme.shape,
       child: Container(
         constraints: widget.constraints,
+        padding: widget.containerPadding,
         color: _resolveBackgroundColor(isSentByMe, theme),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -295,7 +300,8 @@ class _FlyerChatImageMessageState extends State<FlyerChatImageMessage>
           children: [
             if (widget.topWidgets != null) ...widget.topWidgets!,
             Flexible(
-              child: Center(
+              child: ClipRRect(
+                borderRadius: (widget.borderRadius ?? theme.shape) * 0.8,
                 child: AspectRatio(
                   aspectRatio: _aspectRatio,
                   child: Stack(
@@ -401,7 +407,7 @@ class _FlyerChatImageMessageState extends State<FlyerChatImageMessage>
                       if (timeAndStatus != null && widget.message.text == null)
                         Positioned.directional(
                           textDirection: textDirection,
-                          bottom: 8,
+                          bottom: 4,
                           end:
                               widget.timeAndStatusPosition ==
                                           TimeAndStatusPosition.end ||
@@ -547,10 +553,10 @@ class TimeAndStatus extends StatelessWidget {
 
     return Container(
       padding: padding,
-      decoration: BoxDecoration(
+      /* decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(12),
-      ),
+      ), */
       child: Row(
         spacing: 2,
         mainAxisSize: MainAxisSize.min,
