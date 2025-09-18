@@ -82,6 +82,9 @@ class FlyerChatVideoMessage extends StatefulWidget {
   /// Padding inside the message container which creates a border around the image.
   final EdgeInsetsGeometry? containerPadding;
 
+  /// An optional overlay widget to display on top of the image
+  final Widget? overlay;
+
   /// Creates a widget to display an video message.
   const FlyerChatVideoMessage({
     super.key,
@@ -106,6 +109,7 @@ class FlyerChatVideoMessage extends StatefulWidget {
     this.playIconColor = Colors.white,
     this.highResThumbnailProviderBuilder,
     this.containerPadding = EdgeInsets.zero,
+    this.overlay,
   });
 
   @override
@@ -271,6 +275,7 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
                                   theme.colors.surfaceContainerLow,
                             ),
                   ),
+                  if (widget.overlay != null) widget.overlay!,
                   Icon(
                     widget.playIcon,
                     size: widget.playIconSize,
