@@ -333,7 +333,7 @@ class TimeAndStatus extends StatelessWidget {
               getIconForStatus(status!),
               color: textStyle?.color,
               size:
-                  (textStyle?.fontSize != null ? textStyle!.fontSize! + 2 : 12),
+                  (textStyle?.fontSize != null ? textStyle!.fontSize! + 5 : 12),
             ),
       ],
     );
