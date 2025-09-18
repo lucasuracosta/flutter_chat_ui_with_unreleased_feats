@@ -224,6 +224,7 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
               textStyle:
                   widget.timeStyle ??
                   theme.typography.labelSmall.copyWith(color: Colors.white),
+              padding: widget.message.text == null ? null : EdgeInsets.zero,
             )
             : null;
 

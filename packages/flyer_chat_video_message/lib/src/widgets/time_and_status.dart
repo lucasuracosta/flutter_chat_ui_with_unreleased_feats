@@ -22,6 +22,9 @@ class TimeAndStatus extends StatelessWidget {
   /// Text style for the time and status.
   final TextStyle? textStyle;
 
+  /// Padding for the time and status container.
+  final EdgeInsetsGeometry? padding;
+
   /// Creates a widget for displaying time and status over an image.
   const TimeAndStatus({
     super.key,
@@ -31,6 +34,7 @@ class TimeAndStatus extends StatelessWidget {
     this.showStatus = true,
     this.backgroundColor,
     this.textStyle,
+    this.padding = const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
   });
 
   @override
@@ -38,7 +42,7 @@ class TimeAndStatus extends StatelessWidget {
     final timeFormat = context.watch<DateFormat>();
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: padding,
       /* decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(12),
