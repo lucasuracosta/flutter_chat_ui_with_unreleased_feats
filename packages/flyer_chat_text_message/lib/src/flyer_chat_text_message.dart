@@ -298,6 +298,12 @@ class TimeAndStatus extends StatelessWidget {
   /// The text style for the time and status.
   final TextStyle? textStyle;
 
+  /// Size of the status icon.
+  final double? statusIconSize;
+
+  /// Color of the status icon.
+  final Color? statusIconColor;
+
   /// Creates a widget for displaying time and status.
   const TimeAndStatus({
     super.key,
@@ -306,6 +312,8 @@ class TimeAndStatus extends StatelessWidget {
     this.showTime = true,
     this.showStatus = true,
     this.textStyle,
+    this.statusIconSize,
+    this.statusIconColor,
   });
 
   @override
@@ -331,9 +339,8 @@ class TimeAndStatus extends StatelessWidget {
           else
             Icon(
               getIconForStatus(status!),
-              color: textStyle?.color,
-              size:
-                  (textStyle?.fontSize != null ? textStyle!.fontSize! + 5 : 12),
+              color: statusIconColor ?? textStyle?.color,
+              size: statusIconSize ?? 12,
             ),
       ],
     );
