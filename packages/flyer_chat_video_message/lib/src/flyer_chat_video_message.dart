@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:thumbhash/thumbhash.dart'
     show rgbaToBmp, thumbHashToApproximateAspectRatio, thumbHashToRGBA;
 import 'package:video_thumbnail/video_thumbnail.dart';
+
 import 'widgets/full_screen_video_player.dart';
 import 'widgets/hero_video_route.dart';
 import 'widgets/time_and_status.dart';
@@ -78,6 +79,9 @@ class FlyerChatVideoMessage extends StatefulWidget {
   /// thumbnail generation.
   final Future<ImageProvider?> Function()? highResThumbnailProviderBuilder;
 
+  /// Padding inside the message container which creates a border around the image.
+  final EdgeInsetsGeometry? containerPadding;
+
   /// Creates a widget to display an video message.
   const FlyerChatVideoMessage({
     super.key,
@@ -101,6 +105,7 @@ class FlyerChatVideoMessage extends StatefulWidget {
     this.playIconSize = 48,
     this.playIconColor = Colors.white,
     this.highResThumbnailProviderBuilder,
+    this.containerPadding = EdgeInsets.zero,
   });
 
   @override
@@ -222,97 +227,102 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
       borderRadius: widget.borderRadius ?? theme.shape,
       child: Container(
         constraints: widget.constraints,
-        child: AspectRatio(
-          aspectRatio: _aspectRatio,
-          child: GestureDetector(
-            onTap: () {
-              Navigator.of(
-                context,
-                rootNavigator: widget.useRootNavigator,
-              ).push(
-                HeroVideoRoute(
-                  fullscreenDialog: true,
-                  builder:
-                      (_) => FullscreenVideoPlayer(
-                        source: widget.message.source,
-                        aspectRatio: _aspectRatio,
-                        heroTag: widget.message.id,
-                        backgroundColor: widget.fullScreenPlayerBackgroundColor,
-                        loadingIndicatorColor:
-                            widget.fullScreenPlayerLoadingIndicatorColor ??
-                            theme.colors.onSurface.withValues(alpha: 0.8),
-                      ),
-                ),
-              );
-            },
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Hero(
-                  tag: widget.message.id,
-                  child:
-                      _placeholderProvider != null
-                          ? Image(
-                            image: _placeholderProvider!,
-                            fit: BoxFit.fill,
-                          )
-                          : Container(
-                            color:
-                                _resolveBackgroundColor(isSentByMe, theme) ??
-                                theme.colors.surfaceContainerLow,
-                          ),
-                ),
-                Icon(
-                  widget.playIcon,
-                  size: widget.playIconSize,
-                  color: widget.playIconColor,
-                ),
-                if (_chatController is UploadProgressMixin)
-                  StreamBuilder<double>(
-                    stream: (_chatController as UploadProgressMixin)
-                        .getUploadProgress(widget.message.id),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData || snapshot.data! >= 1) {
-                        return const SizedBox();
-                      }
-
-                      return Container(
-                        color:
-                            widget.uploadOverlayColor ??
-                            theme.colors.surfaceContainerLow.withValues(
-                              alpha: 0.5,
-                            ),
-                        child: Center(
-                          child: CircularProgressIndicator(
-                            color:
-                                widget.uploadIndicatorColor ??
-                                theme.colors.onSurface.withValues(alpha: 0.8),
-                            strokeCap: StrokeCap.round,
-                            value: snapshot.data,
-                          ),
+        padding: widget.containerPadding,
+        child: ClipRRect(
+          borderRadius: (widget.borderRadius ?? theme.shape) * 0.8,
+          child: AspectRatio(
+            aspectRatio: _aspectRatio,
+            child: GestureDetector(
+              onTap: () {
+                Navigator.of(
+                  context,
+                  rootNavigator: widget.useRootNavigator,
+                ).push(
+                  HeroVideoRoute(
+                    fullscreenDialog: true,
+                    builder:
+                        (_) => FullscreenVideoPlayer(
+                          source: widget.message.source,
+                          aspectRatio: _aspectRatio,
+                          heroTag: widget.message.id,
+                          backgroundColor:
+                              widget.fullScreenPlayerBackgroundColor,
+                          loadingIndicatorColor:
+                              widget.fullScreenPlayerLoadingIndicatorColor ??
+                              theme.colors.onSurface.withValues(alpha: 0.8),
                         ),
-                      );
-                    },
                   ),
-                if (timeAndStatus != null)
-                  Positioned.directional(
-                    textDirection: textDirection,
-                    bottom: 8,
-                    end:
-                        widget.timeAndStatusPosition ==
-                                    TimeAndStatusPosition.end ||
-                                widget.timeAndStatusPosition ==
-                                    TimeAndStatusPosition.inline
-                            ? 8
-                            : null,
-                    start:
-                        widget.timeAndStatusPosition ==
-                                TimeAndStatusPosition.start
-                            ? 8
-                            : null,
-                    child: timeAndStatus,
+                );
+              },
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Hero(
+                    tag: widget.message.id,
+                    child:
+                        _placeholderProvider != null
+                            ? Image(
+                              image: _placeholderProvider!,
+                              fit: BoxFit.fill,
+                            )
+                            : Container(
+                              color:
+                                  _resolveBackgroundColor(isSentByMe, theme) ??
+                                  theme.colors.surfaceContainerLow,
+                            ),
                   ),
-              ],
+                  Icon(
+                    widget.playIcon,
+                    size: widget.playIconSize,
+                    color: widget.playIconColor,
+                  ),
+                  if (_chatController is UploadProgressMixin)
+                    StreamBuilder<double>(
+                      stream: (_chatController as UploadProgressMixin)
+                          .getUploadProgress(widget.message.id),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData || snapshot.data! >= 1) {
+                          return const SizedBox();
+                        }
+
+                        return Container(
+                          color:
+                              widget.uploadOverlayColor ??
+                              theme.colors.surfaceContainerLow.withValues(
+                                alpha: 0.5,
+                              ),
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              color:
+                                  widget.uploadIndicatorColor ??
+                                  theme.colors.onSurface.withValues(alpha: 0.8),
+                              strokeCap: StrokeCap.round,
+                              value: snapshot.data,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  if (timeAndStatus != null)
+                    Positioned.directional(
+                      textDirection: textDirection,
+                      bottom: 4,
+                      end:
+                          widget.timeAndStatusPosition ==
+                                      TimeAndStatusPosition.end ||
+                                  widget.timeAndStatusPosition ==
+                                      TimeAndStatusPosition.inline
+                              ? 8
+                              : null,
+                      start:
+                          widget.timeAndStatusPosition ==
+                                  TimeAndStatusPosition.start
+                              ? 8
+                              : null,
+                      child: timeAndStatus,
+                    ),
+                ],
+              ),
             ),
           ),
         ),

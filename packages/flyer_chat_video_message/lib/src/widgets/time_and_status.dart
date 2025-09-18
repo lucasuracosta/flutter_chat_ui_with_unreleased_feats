@@ -39,10 +39,10 @@ class TimeAndStatus extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
+      /* decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(12),
-      ),
+      ), */
       child: Row(
         spacing: 2,
         mainAxisSize: MainAxisSize.min,
