@@ -70,6 +70,9 @@ class FlyerChatTextMessage extends StatelessWidget {
   /// Insets for the timestamp and status indicator when [timeAndStatusPosition] is [TimeAndStatusPosition.inline].
   final EdgeInsetsGeometry? timeAndStatusPositionInlineInsets;
 
+  /// Alignment for the timestamp and status indicator when [timeAndStatusPosition] is [TimeAndStatusPosition.inline].
+  final CrossAxisAlignment timeAndStatusPositionInlineAlignment;
+
   /// The callback function to handle link clicks.
   final void Function(String url, String title)? onLinkTap;
 
@@ -101,6 +104,7 @@ class FlyerChatTextMessage extends StatelessWidget {
     this.showStatus = true,
     this.timeAndStatusPosition = TimeAndStatusPosition.end,
     this.timeAndStatusPositionInlineInsets = const EdgeInsets.only(bottom: 2),
+    this.timeAndStatusPositionInlineAlignment = CrossAxisAlignment.end,
     this.onLinkTap,
     this.linkPreviewPosition = LinkPreviewPosition.bottom,
     this.topWidgets,
@@ -217,7 +221,7 @@ class FlyerChatTextMessage extends StatelessWidget {
             timeAndStatusPosition == TimeAndStatusPosition.inline
                 ? Row(
                   mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
+                  crossAxisAlignment: timeAndStatusPositionInlineAlignment,
                   children: [
                     Flexible(child: textContent),
                     SizedBox(width: 4),
