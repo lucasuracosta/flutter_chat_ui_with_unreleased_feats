@@ -85,6 +85,12 @@ class FlyerChatVideoMessage extends StatefulWidget {
   /// An optional overlay widget to display on top of the image
   final Widget? overlay;
 
+  /// Size of the status icon.
+  final double? statusIconSize;
+
+  /// Color of the status icon.
+  final Color? statusIconColor;
+
   /// Creates a widget to display an video message.
   const FlyerChatVideoMessage({
     super.key,
@@ -110,6 +116,8 @@ class FlyerChatVideoMessage extends StatefulWidget {
     this.highResThumbnailProviderBuilder,
     this.containerPadding = EdgeInsets.zero,
     this.overlay,
+    this.statusIconSize,
+    this.statusIconColor,
   });
 
   @override
@@ -225,6 +233,8 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
                   widget.timeStyle ??
                   theme.typography.labelSmall.copyWith(color: Colors.white),
               padding: widget.message.text == null ? null : EdgeInsets.zero,
+              statusIconSize: widget.statusIconSize,
+              statusIconColor: widget.statusIconColor,
             )
             : null;
 

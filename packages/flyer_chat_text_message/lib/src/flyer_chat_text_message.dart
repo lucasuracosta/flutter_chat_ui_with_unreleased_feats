@@ -84,6 +84,12 @@ class FlyerChatTextMessage extends StatelessWidget {
   /// The widgets to display before the message.
   final List<Widget>? topWidgets;
 
+  /// Size of the status icon.
+  final double? statusIconSize;
+
+  /// Color of the status icon.
+  final Color? statusIconColor;
+
   /// Creates a widget to display a text message.
   const FlyerChatTextMessage({
     super.key,
@@ -108,6 +114,8 @@ class FlyerChatTextMessage extends StatelessWidget {
     this.onLinkTap,
     this.linkPreviewPosition = LinkPreviewPosition.bottom,
     this.topWidgets,
+    this.statusIconSize,
+    this.statusIconColor,
   });
 
   bool get _isOnlyEmoji => message.metadata?['isOnlyEmoji'] == true;

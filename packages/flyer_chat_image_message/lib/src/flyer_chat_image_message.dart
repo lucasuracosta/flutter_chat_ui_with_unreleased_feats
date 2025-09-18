@@ -111,6 +111,12 @@ class FlyerChatImageMessage extends StatefulWidget {
   /// Padding inside the message container which creates a border around the image.
   final EdgeInsetsGeometry? containerPadding;
 
+  /// Size of the status icon.
+  final double? statusIconSize;
+
+  /// Color of the status icon.
+  final Color? statusIconColor;
+
   /// Creates a widget to display an image message.
   const FlyerChatImageMessage({
     super.key,
@@ -139,6 +145,8 @@ class FlyerChatImageMessage extends StatefulWidget {
     this.receivedTextStyle,
     this.textPadding = const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
     this.containerPadding = EdgeInsets.zero,
+    this.statusIconSize,
+    this.statusIconColor,
   });
 
   @override
@@ -285,6 +293,8 @@ class _FlyerChatImageMessageState extends State<FlyerChatImageMessage>
                       : null,
               textStyle: _resolveTimeStyle(isSentByMe, theme),
               padding: widget.message.text == null ? null : EdgeInsets.zero,
+              statusIconSize: widget.statusIconSize,
+              statusIconColor: widget.statusIconColor,
             )
             : null;
 
