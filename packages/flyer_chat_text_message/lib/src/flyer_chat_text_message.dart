@@ -329,7 +329,12 @@ class TimeAndStatus extends StatelessWidget {
               ),
             )
           else
-            Icon(getIconForStatus(status!), color: textStyle?.color, size: 12),
+            Icon(
+              getIconForStatus(status!),
+              color: textStyle?.color,
+              size:
+                  (textStyle?.fontSize != null ? textStyle!.fontSize! + 1 : 12),
+            ),
       ],
     );
   }
