@@ -146,6 +146,8 @@ class FlyerChatTextMessage extends StatelessWidget {
               showTime: showTime,
               showStatus: isSentByMe && showStatus,
               textStyle: timeStyle,
+              statusIconColor: statusIconColor,
+              statusIconSize: statusIconSize,
             )
             : null;
 
