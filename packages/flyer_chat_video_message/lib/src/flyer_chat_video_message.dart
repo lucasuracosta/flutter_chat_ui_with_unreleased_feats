@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:cross_cache/cross_cache.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:provider/provider.dart';
@@ -13,6 +14,8 @@ import 'widgets/time_and_status.dart';
 
 /// A widget that displays an [VideoMessage].
 ///
+/// Uses [CrossCache] for efficient thumbnail caching and storage.
+/// Supports ThumbHash placeholders for low-resolution previews.
 /// Optionally displays upload progress if the [ChatController]
 /// implements [UploadProgressMixin].
 class FlyerChatVideoMessage extends StatefulWidget {
@@ -174,28 +177,43 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
       return;
     }
 
-    // TODO use cache manager (or crosscache? to save the image)
+    final crossCache = context.read<CrossCache>();
+    final cacheKey = 'video_thumbnail_${widget.message.source}';
+
+    try {
+      // Try to get cached thumbnail first
+      final cachedThumbnail = await crossCache.get(cacheKey);
+      if (mounted) {
+        setState(() {
+          _placeholderProvider = MemoryImage(cachedThumbnail);
+        });
+      }
+      return;
+    } catch (e) {
+      // Cache miss, generate new thumbnail
+    }
+
+    // Generate thumbnail using video_thumbnail
     final coverImageBytes = await VideoThumbnail.thumbnailData(
       video: widget.message.source,
       imageFormat: ImageFormat.WEBP,
       quality: 25,
       headers: widget.headers,
     );
-    if (mounted) {
-      setState(() {
-        // TODO should we add 'image' package to decode and get height and width
-        // to update _aspectRatio?
 
-        // import 'package:image/image.dart' as img;
+    if (coverImageBytes != null) {
+      // Cache the generated thumbnail
+      try {
+        await crossCache.set(cacheKey, coverImageBytes);
+      } catch (e) {
+        debugPrint('Could not cache video thumbnail: ${e.toString()}');
+      }
 
-        // final decoded = img.decodeImage(coverImageBytes!);
-        // if (decoded != null) {
-        //   final width = decoded.width;
-        //   final height = decoded.height;
-        // }
-
-        _placeholderProvider = MemoryImage(coverImageBytes!);
-      });
+      if (mounted) {
+        setState(() {
+          _placeholderProvider = MemoryImage(coverImageBytes);
+        });
+      }
     }
   }
 
