@@ -94,6 +94,11 @@ class FlyerChatVideoMessage extends StatefulWidget {
   /// Color of the status icon.
   final Color? statusIconColor;
 
+  /// Whether to open the full screen player when tapping on the video message.
+  /// If false, tapping the video message will do nothing.
+  /// Allowing the user to implement their own custom behavior.
+  final bool openFullScreenPlayerOnTap;
+
   /// Creates a widget to display an video message.
   const FlyerChatVideoMessage({
     super.key,
@@ -113,6 +118,7 @@ class FlyerChatVideoMessage extends StatefulWidget {
     this.useRootNavigator = false,
     this.fullScreenPlayerBackgroundColor,
     this.fullScreenPlayerLoadingIndicatorColor,
+    this.openFullScreenPlayerOnTap = true,
     this.playIcon = Icons.play_circle_fill,
     this.playIconSize = 48,
     this.playIconColor = Colors.white,
@@ -267,27 +273,33 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
           child: AspectRatio(
             aspectRatio: _aspectRatio,
             child: GestureDetector(
-              onTap: () {
-                Navigator.of(
-                  context,
-                  rootNavigator: widget.useRootNavigator,
-                ).push(
-                  HeroVideoRoute(
-                    fullscreenDialog: true,
-                    builder:
-                        (_) => FullscreenVideoPlayer(
-                          source: widget.message.source,
-                          aspectRatio: _aspectRatio,
-                          heroTag: widget.message.id,
-                          backgroundColor:
-                              widget.fullScreenPlayerBackgroundColor,
-                          loadingIndicatorColor:
-                              widget.fullScreenPlayerLoadingIndicatorColor ??
-                              theme.colors.onSurface.withValues(alpha: 0.8),
-                        ),
-                  ),
-                );
-              },
+              onTap:
+                  widget.openFullScreenPlayerOnTap
+                      ? () {
+                        Navigator.of(
+                          context,
+                          rootNavigator: widget.useRootNavigator,
+                        ).push(
+                          HeroVideoRoute(
+                            fullscreenDialog: true,
+                            builder:
+                                (_) => FullscreenVideoPlayer(
+                                  source: widget.message.source,
+                                  aspectRatio: _aspectRatio,
+                                  heroTag: widget.message.id,
+                                  backgroundColor:
+                                      widget.fullScreenPlayerBackgroundColor,
+                                  loadingIndicatorColor:
+                                      widget
+                                          .fullScreenPlayerLoadingIndicatorColor ??
+                                      theme.colors.onSurface.withValues(
+                                        alpha: 0.8,
+                                      ),
+                                ),
+                          ),
+                        );
+                      }
+                      : null,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
