@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
+
 import '../utils/typedefs.dart';
 import 'message.dart';
 import 'message_group_status.dart';
@@ -14,6 +15,7 @@ typedef TextMessageBuilder =
       int index, {
       required bool isSentByMe,
       MessageGroupStatus? groupStatus,
+      bool? isInsideMenu,
     });
 
 /// Signature for building a streaming text message widget.

@@ -1,4 +1,5 @@
 import 'dart:ui';
+
 import 'package:animate_do/animate_do.dart' show FadeInLeft, Pulse;
 import 'package:flutter/material.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
@@ -23,6 +24,7 @@ class ReactionsDialogWidget extends StatefulWidget {
   const ReactionsDialogWidget({
     super.key,
     required this.messageWidget,
+    required this.messageId,
     required this.onReactionTap,
     this.moreReactionsWidget,
     this.onMoreReactionsTap,
@@ -40,6 +42,10 @@ class ReactionsDialogWidget extends StatefulWidget {
     this.reactionTapAnimationDuration,
     this.reactionPickerFadeLeftAnimationDuration,
   });
+
+  /// The id of the message for which the dialog is displayed
+  /// Used for Hero animation tag
+  final String messageId;
 
   /// The message widget to be displayed in the dialog
   final Widget messageWidget;
@@ -99,10 +105,33 @@ class ReactionsDialogWidget extends StatefulWidget {
   State<ReactionsDialogWidget> createState() => _ReactionsDialogWidgetState();
 }
 
-class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget> {
+class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
+    with SingleTickerProviderStateMixin {
   bool reactionClicked = false;
   int? clickedReactionIndex;
   int? clickedContextMenuIndex;
+  bool _showPickerAndMenu = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Wait for Hero animation to complete before showing picker and menu
+    /* WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted) {
+          setState(() {
+            _showPickerAndMenu = true;
+          });
+        }
+      });
+    }); */
+  }
+
+  void _hidePickerAndMenuBeforePop() {
+    setState(() {
+      _showPickerAndMenu = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -114,21 +143,50 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget> {
         shape: t.shape,
       ),
     );
-    return BackdropFilter(
-      filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-      child: Padding(
-        padding: const EdgeInsets.only(right: 20.0, left: 20.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.max,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            buildReactionsPicker(context, theme),
-            const SizedBox(height: 10),
-            buildMessage(),
-            const SizedBox(height: 10),
-            buildMenuItems(context, theme),
-          ],
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        _hidePickerAndMenuBeforePop();
+        await Future.delayed(const Duration(milliseconds: 100));
+        if (context.mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: GestureDetector(
+        onTap: () {
+          _hidePickerAndMenuBeforePop();
+          Future.delayed(const Duration(milliseconds: 100)).whenComplete(() {
+            if (context.mounted) {
+              Navigator.of(context).pop();
+            }
+          });
+        },
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+          child: Padding(
+            padding: const EdgeInsets.only(right: 8, left: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.max,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AnimatedOpacity(
+                  opacity: _showPickerAndMenu ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 150),
+                  child: buildReactionsPicker(context, theme),
+                ),
+                const SizedBox(height: 10),
+                buildMessage(),
+                const SizedBox(height: 10),
+                AnimatedOpacity(
+                  opacity: _showPickerAndMenu ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 150),
+                  child: buildMenuItems(context, theme),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -166,6 +224,7 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget> {
                             );
                           });
 
+                          _hidePickerAndMenuBeforePop();
                           Future.delayed(
                             widget.menuItemTapAnimationDuration ??
                                 const Duration(milliseconds: 200),
@@ -192,7 +251,7 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget> {
                               infinite: false,
                               duration:
                                   widget.menuItemTapAnimationDuration ??
-                                  const Duration(milliseconds: 200),
+                                  const Duration(milliseconds: 100),
                               animate:
                                   clickedContextMenuIndex ==
                                   widget.menuItems?.indexOf(item),
@@ -226,7 +285,32 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget> {
   Align buildMessage() {
     return Align(
       alignment: widget.widgetAlignment ?? Alignment.centerRight,
-      child: widget.messageWidget,
+      child: Hero(
+        tag: widget.messageId,
+        flightShuttleBuilder: (
+          flightContext,
+          animation,
+          flightDirection,
+          fromHeroContext,
+          toHeroContext,
+        ) {
+          animation.addListener(() {
+            // We want to start the menu animation a bit before the hero animation ends
+            // to avoid a "sluggish" feeling
+            if (animation.value > 0.9 &&
+                !_showPickerAndMenu &&
+                animation.isForwardOrCompleted) {
+              if (mounted) {
+                setState(() {
+                  _showPickerAndMenu = true;
+                });
+              }
+            }
+          });
+          return widget.messageWidget;
+        },
+        child: widget.messageWidget,
+      ),
     );
   }
 
@@ -292,6 +376,7 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget> {
                           reactionClicked = true;
                           clickedReactionIndex = i;
                         });
+                        _hidePickerAndMenuBeforePop();
                         Future.delayed(
                           reactionTapAnimationDuration,
                         ).whenComplete(() {
@@ -312,10 +397,15 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget> {
                     delay: Duration.zero,
                     child: InkWell(
                       onTap: () {
-                        if (context.mounted) {
-                          Navigator.of(context).pop();
-                        }
-                        widget.onMoreReactionsTap?.call();
+                        _hidePickerAndMenuBeforePop();
+                        Future.delayed(
+                          const Duration(milliseconds: 100),
+                        ).whenComplete(() {
+                          if (context.mounted) {
+                            Navigator.of(context).pop();
+                          }
+                          widget.onMoreReactionsTap?.call();
+                        });
                       },
                       child:
                           widget.moreReactionsWidget ??
@@ -374,40 +464,52 @@ void showReactionsDialog(
     message,
     0,
     isSentByMe: isSentByMe,
+    isInsideMenu: true,
   );
 
-  showDialog(
-    context: context,
-    useSafeArea: true,
-    useRootNavigator: false,
-    builder:
-        (context) => MultiProvider(
+  Navigator.push(
+    context,
+    new PageRouteBuilder(
+      barrierDismissible: true,
+      barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      barrierColor: Colors.transparent,
+      fullscreenDialog: true,
+      opaque: false,
+      transitionDuration: Duration(milliseconds: 500),
+      pageBuilder: (BuildContext context, animation1, animation2) {
+        return MultiProvider(
           providers: providers,
-          child: ReactionsDialogWidget(
-            messageWidget: widget,
-            widgetAlignment:
-                widgetAlignment ??
-                (isSentByMe ? Alignment.centerRight : Alignment.centerLeft),
-            onReactionTap: (reaction) {
-              onReactionTap(reaction);
-            },
-            onMoreReactionsTap: onMoreReactionsTap,
-            menuItems: menuItems,
-            reactions: reactions,
-            userReactions: userReactions,
-            menuItemsWidthRatio: menuItemsWidthRatio,
-            menuItemBackgroundColor: menuItemBackgroundColor,
-            menuItemDestructiveColor: menuItemDestructiveColor,
-            menuItemDividerColor: menuItemDividerColor,
-            reactionsPickerBackgroundColor: reactionsPickerBackgroundColor,
-            reactionsPickerReactedBackgroundColor:
-                reactionsPickerReactedBackgroundColor,
-            menuItemTapAnimationDuration: menuItemTapAnimationDuration,
-            reactionTapAnimationDuration: reactionTapAnimationDuration,
-            reactionPickerFadeLeftAnimationDuration:
-                reactionPickerFadeLeftAnimationDuration,
-            moreReactionsWidget: moreReactionsWidget,
+          child: SafeArea(
+            child: ReactionsDialogWidget(
+              messageWidget: widget,
+              messageId: message.id,
+              widgetAlignment:
+                  widgetAlignment ??
+                  (isSentByMe ? Alignment.centerRight : Alignment.centerLeft),
+              onReactionTap: (reaction) {
+                onReactionTap(reaction);
+              },
+              onMoreReactionsTap: onMoreReactionsTap,
+              menuItems: menuItems,
+              reactions: reactions,
+              userReactions: userReactions,
+              menuItemsWidthRatio: menuItemsWidthRatio,
+              menuItemBackgroundColor: menuItemBackgroundColor,
+              menuItemDestructiveColor: menuItemDestructiveColor,
+              menuItemDividerColor: menuItemDividerColor,
+              reactionsPickerBackgroundColor: reactionsPickerBackgroundColor,
+              reactionsPickerReactedBackgroundColor:
+                  reactionsPickerReactedBackgroundColor,
+              menuItemTapAnimationDuration: menuItemTapAnimationDuration,
+              reactionTapAnimationDuration: reactionTapAnimationDuration,
+              reactionPickerFadeLeftAnimationDuration:
+                  reactionPickerFadeLeftAnimationDuration,
+              moreReactionsWidget: moreReactionsWidget,
+            ),
           ),
-        ),
+        );
+      },
+    ),
   );
+  return;
 }

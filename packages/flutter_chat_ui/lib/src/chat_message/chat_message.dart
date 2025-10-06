@@ -175,7 +175,7 @@ class ChatMessage extends StatelessWidget {
               details: LongPressStartDetails(),
               isSentByMe: isSentByMe,
             );
-            return;
+            /* return; */
           },
           child: FadeTransition(
             opacity: curvedAnimation,

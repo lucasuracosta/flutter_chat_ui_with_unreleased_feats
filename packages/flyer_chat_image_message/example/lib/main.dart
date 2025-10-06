@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flyer_chat_image_message/flyer_chat_image_message.dart';
+import 'package:flyer_chat_reactions/flyer_chat_reactions.dart';
+import 'package:flyer_chat_text_message/flyer_chat_text_message.dart';
 import 'package:provider/provider.dart';
 
 void main() {
@@ -226,31 +228,91 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
               int index, {
               required bool isSentByMe,
               MessageGroupStatus? groupStatus,
+              bool? isInsideMenu,
             }) {
-              return SimpleTextMessage(
-                message: message,
-                index: index,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(12),
-                  topRight: const Radius.circular(12),
-                  bottomLeft: Radius.circular(
-                    isSentByMe
-                        ? 12
-                        : ((groupStatus?.isLast == true || groupStatus == null)
-                            ? 0
-                            : 12),
+              final messageWidget = MultiProvider(
+                providers: [
+                  Provider.value(value: _currentUserId),
+                  Provider.value(value: () {}),
+                  Provider.value(value: _chatController),
+                  Provider.value(
+                    value: ChatTheme.light().copyWith(
+                      colors: ChatColors(
+                        primary: Color(0xFF545AFA),
+                        onPrimary: Colors.white,
+                        surface: Colors.white,
+                        onSurface: Color(0xFF1F1F1F),
+                        surfaceContainer: const Color(0xffF5F6FF),
+                        surfaceContainerLow: Color(
+                          0xFFFFF5CE,
+                        ).withValues(alpha: 1),
+                        surfaceContainerHigh: const Color(
+                          0xfff5f5f7,
+                        ).withValues(alpha: 0.95),
+                        surfaceContainerHighest: const Color(0xfff5f5f7),
+                      ),
+                    ),
                   ),
-                  bottomRight: Radius.circular(
-                    isSentByMe
-                        ? ((groupStatus?.isLast == true || groupStatus == null)
-                            ? 0
-                            : 12)
-                        : 12,
+                  Provider.value(value: Builders()),
+                  //Provider.value(value: _crossCache),
+                  /* if (widget.userCache != null)
+                          ChangeNotifierProvider.value(value: _userCache)
+                        else
+                          ChangeNotifierProvider(create: (_) => _userCache), */
+                  Provider.value(value: DateFormat.Hm()),
+                  /* Provider.value(value: widget.onMessageSend),
+                        Provider.value(value: widget.onMessageTap),
+                        Provider.value(value: widget.onMessageLongPress),
+                        Provider.value(value: widget.onAttachmentTap), */
+                  ChangeNotifierProvider(
+                    create: (_) => ComposerHeightNotifier(),
+                  ),
+                  ChangeNotifierProvider(create: (_) => LoadMoreNotifier()),
+                ],
+
+                child: DefaultTextStyle(
+                  style: const TextStyle(fontSize: 14, color: Colors.black),
+                  child: FlyerChatTextMessage(
+                    message: message,
+                    index: index,
+                    receivedTextStyle: TextStyle(
+                      color: Color(0xFF1F1F1F),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                    ),
+                    sentTextStyle: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                    ),
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(12),
+                      topRight: const Radius.circular(12),
+                      bottomLeft: Radius.circular(
+                        isSentByMe
+                            ? 12
+                            : ((groupStatus?.isLast == true ||
+                                    groupStatus == null)
+                                ? 0
+                                : 12),
+                      ),
+                      bottomRight: Radius.circular(
+                        isSentByMe
+                            ? ((groupStatus?.isLast == true ||
+                                    groupStatus == null)
+                                ? 0
+                                : 12)
+                            : 12,
+                      ),
+                    ),
+                    /* isSentByMe: isSentByMe,
+                      groupStatus: groupStatus, */
                   ),
                 ),
-                /* isSentByMe: isSentByMe,
-                groupStatus: groupStatus, */
               );
+              return isInsideMenu != true
+                  ? Hero(tag: message.id, child: messageWidget)
+                  : messageWidget;
             },
             imageMessageBuilder: (
               BuildContext context,
@@ -404,6 +466,25 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
                 newMessage.copyWith(status: MessageStatus.sent),
               );
             });
+          },
+          onMessageLongPress: (
+            context,
+            message, {
+            LongPressStartDetails? details,
+            int? index,
+            required isSentByMe,
+          }) {
+            showReactionsDialog(
+              context,
+              message,
+              isSentByMe: isSentByMe,
+              onReactionTap: (_) {},
+              menuItems: [
+                MenuItem(title: 'Like', icon: Icons.thumb_up),
+                MenuItem(title: 'Love', icon: Icons.favorite),
+                MenuItem(title: 'Laugh', icon: Icons.emoji_emotions),
+              ],
+            );
           },
           onMessageSend: (text) {
             // Handle text messages
