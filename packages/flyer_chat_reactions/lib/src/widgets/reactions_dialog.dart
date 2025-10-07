@@ -1,11 +1,14 @@
+import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui';
 
-import 'package:animate_do/animate_do.dart' show FadeInLeft, Pulse;
+import 'package:animate_do/animate_do.dart' show FadeInLeft, Pulse, FadeInRight;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
-import 'package:flutter_chat_ui/flutter_chat_ui.dart'
-    show ChatProviders, buildMessageContent;
+import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:provider/single_child_widget.dart';
 
 import '../models/default_data.dart';
 import '../models/menu_item.dart';
@@ -23,9 +26,12 @@ typedef _LocalTheme =
 class ReactionsDialogWidget extends StatefulWidget {
   const ReactionsDialogWidget({
     super.key,
-    required this.messageWidget,
-    required this.messageId,
+    required this.message,
     required this.onReactionTap,
+    required this.isSentByMe,
+    required this.needsPositionAdjustment,
+    required this.messageOffset,
+    required this.messageSize,
     this.moreReactionsWidget,
     this.onMoreReactionsTap,
     this.menuItems,
@@ -36,22 +42,34 @@ class ReactionsDialogWidget extends StatefulWidget {
     this.menuItemBackgroundColor,
     this.menuItemDestructiveColor,
     this.menuItemDividerColor,
+    this.menuItemPadding,
     this.reactionsPickerBackgroundColor,
     this.reactionsPickerReactedBackgroundColor,
     this.menuItemTapAnimationDuration,
     this.reactionTapAnimationDuration,
     this.reactionPickerFadeLeftAnimationDuration,
+    this.horizontalMessagePadding = 8,
+    this.onlyMenu = false,
   });
 
-  /// The id of the message for which the dialog is displayed
-  /// Used for Hero animation tag
-  final String messageId;
+  /// The message for which the dialog is displayed
+  /// Used to build the message widget
+  final Message message;
 
-  /// The message widget to be displayed in the dialog
-  final Widget messageWidget;
+  /// Whether to show only the menu without reactions picker
+  final bool onlyMenu;
+
+  /// The horizontal padding for the message widget
+  final double horizontalMessagePadding;
 
   /// The callback function to be called when a reaction is tapped
   final OnReactionTapCallback onReactionTap;
+
+  /// Whether the message is sent by the current user
+  final bool isSentByMe;
+
+  /// Whether the position needs to be adjusted to fit within safe area
+  final bool needsPositionAdjustment;
 
   /// More Reactions Widget
   final Widget? moreReactionsWidget;
@@ -89,6 +107,9 @@ class ReactionsDialogWidget extends StatefulWidget {
   /// The divider color for menu items
   final Color? menuItemDividerColor;
 
+  /// The padding for menu items
+  final EdgeInsetsGeometry? menuItemPadding;
+
   /// The background color for reactions picker
   final Color? reactionsPickerBackgroundColor;
 
@@ -101,6 +122,15 @@ class ReactionsDialogWidget extends StatefulWidget {
   /// Animation duration to display the reactions row
   final Duration? reactionPickerFadeLeftAnimationDuration;
 
+  /// These two properties (offset and size) are calculated before calling this function
+  /// we could consider calculating that inside here
+
+  /// The offset of the message widget in the parent Hero
+  final Offset messageOffset;
+
+  /// The size of the message widget
+  final Size messageSize;
+
   @override
   State<ReactionsDialogWidget> createState() => _ReactionsDialogWidgetState();
 }
@@ -111,20 +141,41 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
   int? clickedReactionIndex;
   int? clickedContextMenuIndex;
   bool _showPickerAndMenu = false;
+  final GlobalKey _reactionsPickerKey = GlobalKey();
+  final GlobalKey _menuItemsKey = GlobalKey();
+  double _reactionsPickerHeight = 0;
+  double _menuItemsHeight = 0;
 
   @override
   void initState() {
     super.initState();
-    // Wait for Hero animation to complete before showing picker and menu
-    /* WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted) {
+    // Calculate reactions picker and menu items height after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _calculateHeights();
+      if (mounted && widget.needsPositionAdjustment == false) {
+        Timer(const Duration(milliseconds: 50), () {
           setState(() {
             _showPickerAndMenu = true;
           });
-        }
+        });
+      }
+    });
+  }
+
+  void _calculateHeights() {
+    final pickerRenderBox =
+        _reactionsPickerKey.currentContext?.findRenderObject() as RenderBox?;
+    final menuRenderBox =
+        _menuItemsKey.currentContext?.findRenderObject() as RenderBox?;
+
+    if (pickerRenderBox != null && menuRenderBox != null && mounted) {
+      setState(() {
+        _reactionsPickerHeight =
+            pickerRenderBox.size.height + 0; // +10 for bottom padding
+        _menuItemsHeight =
+            menuRenderBox.size.height + 10; // +10 for top padding
       });
-    }); */
+    }
   }
 
   void _hidePickerAndMenuBeforePop() {
@@ -143,12 +194,40 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
         shape: t.shape,
       ),
     );
+
+    final mediaQuery = MediaQuery.of(context);
+    final screenHeight = mediaQuery.size.height;
+    final safeAreaTop = mediaQuery.padding.top;
+    final safeAreaBottom =
+        mediaQuery.padding.bottom + 20; // Extra padding at bottom
+
+    // Calculate top position ensuring it's not below 0 and accounts for SafeArea
+    late double calculatedTop;
+    final desiredTop = widget.messageOffset.dy /* - _reactionsPickerHeight */;
+
+    // Calculate total height needed
+    final totalHeight =
+        /* _reactionsPickerHeight + */
+        (widget.messageSize.height ?? 0) +
+        ((widget.menuItems?.length ?? 0) * 40);
+
+    // Ensure the bottom doesn't exceed available screen height
+    if ((desiredTop + totalHeight) > (screenHeight - safeAreaBottom)) {
+      // Adjust top to fit within screen, accounting for SafeArea
+      // (which is already excluded from screenHeight)
+      calculatedTop = math.max(
+        safeAreaTop,
+        screenHeight - safeAreaBottom - totalHeight,
+      );
+    } else {
+      calculatedTop = math.max(safeAreaTop, desiredTop);
+    }
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         if (didPop) return;
         _hidePickerAndMenuBeforePop();
-        await Future.delayed(const Duration(milliseconds: 100));
         if (context.mounted) {
           Navigator.of(context).pop();
         }
@@ -156,34 +235,68 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
       child: GestureDetector(
         onTap: () {
           _hidePickerAndMenuBeforePop();
-          Future.delayed(const Duration(milliseconds: 100)).whenComplete(() {
-            if (context.mounted) {
-              Navigator.of(context).pop();
-            }
-          });
+          if (context.mounted) {
+            Navigator.of(context).pop();
+          }
         },
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-          child: Padding(
-            padding: const EdgeInsets.only(right: 8, left: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.max,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisAlignment: MainAxisAlignment.center,
+          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+          child: SizedBox.expand(
+            child: Stack(
               children: [
-                AnimatedOpacity(
-                  opacity: _showPickerAndMenu ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 150),
-                  child: buildReactionsPicker(context, theme),
+                Positioned.directional(
+                  textDirection:
+                      widget.isSentByMe ? TextDirection.rtl : TextDirection.ltr,
+                  start: widget.horizontalMessagePadding,
+                  top: calculatedTop,
+                  width: widget.messageSize.width,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    children: [
+                      buildMessage(),
+                      AnimatedScale(
+                        key: _menuItemsKey,
+                        scale: _showPickerAndMenu ? 1.0 : 0.5,
+                        duration: const Duration(milliseconds: 150),
+                        alignment:
+                            widget.isSentByMe
+                                ? Alignment.topRight
+                                : Alignment.topLeft,
+                        child: AnimatedOpacity(
+                          opacity: _showPickerAndMenu ? 1.0 : 0.0,
+                          duration: const Duration(milliseconds: 150),
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: buildMenuItems(context, theme),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 10),
-                buildMessage(),
-                const SizedBox(height: 10),
-                AnimatedOpacity(
-                  opacity: _showPickerAndMenu ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 150),
-                  child: buildMenuItems(context, theme),
-                ),
+                // Reactions are in a separate positioned widget so that we can
+                // use the message offset for the message itself and then set
+                // the reactions above it avoiding calculations to compensate for the reactions
+                if (!widget.onlyMenu)
+                  Positioned.directional(
+                    textDirection:
+                        widget.isSentByMe
+                            ? TextDirection.rtl
+                            : TextDirection.ltr,
+                    start: widget.horizontalMessagePadding,
+                    bottom: (mediaQuery.size.height - calculatedTop),
+                    width: widget.messageSize.width,
+                    child: AnimatedOpacity(
+                      key: _reactionsPickerKey,
+                      opacity: _showPickerAndMenu ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 150),
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: buildReactionsPicker(context, theme),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -215,7 +328,8 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
                 Column(
                   children: [
                     Padding(
-                      padding: const EdgeInsets.all(8),
+                      padding:
+                          widget.menuItemPadding ?? const EdgeInsets.all(8),
                       child: InkWell(
                         onTap: () {
                           setState(() {
@@ -286,7 +400,7 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
     return Align(
       alignment: widget.widgetAlignment ?? Alignment.centerRight,
       child: Hero(
-        tag: widget.messageId,
+        tag: widget.message.id,
         flightShuttleBuilder: (
           flightContext,
           animation,
@@ -294,24 +408,71 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
           fromHeroContext,
           toHeroContext,
         ) {
-          animation.addListener(() {
+          late VoidCallback showListener;
+
+          showListener = () {
             // We want to start the menu animation a bit before the hero animation ends
             // to avoid a "sluggish" feeling
             if (animation.value > 0.9 &&
                 !_showPickerAndMenu &&
-                animation.isForwardOrCompleted) {
+                animation.isForwardOrCompleted &&
+                widget.needsPositionAdjustment) {
               if (mounted) {
                 setState(() {
                   _showPickerAndMenu = true;
                 });
+
+                // Proper cleanup of the listener
+                animation.removeListener(showListener);
               }
             }
-          });
-          return widget.messageWidget;
+          };
+
+          animation.addListener(showListener);
+
+          return buildMessageWithProviders();
         },
-        child: widget.messageWidget,
+        child: buildMessageWithProviders(),
       ),
     );
+  }
+
+  Widget buildMessageWithProviders() {
+    final providers = ChatProviders.from(context);
+    return MultiProvider(
+      providers: providers,
+      child: buildMessageContent(
+        context,
+        context.read<Builders>(),
+        widget.message,
+        0,
+        isSentByMe: widget.isSentByMe,
+        isInsideMenu: true,
+      ),
+    );
+  }
+
+  Widget fadeDependingOnPosition({
+    required double from,
+    required InkWell child,
+  }) {
+    if (widget.isSentByMe) {
+      return FadeInRight(
+        duration:
+            widget.reactionPickerFadeLeftAnimationDuration ??
+            const Duration(milliseconds: 200),
+        delay: Duration.zero,
+        child: child,
+      );
+    } else {
+      return FadeInLeft(
+        duration:
+            widget.reactionPickerFadeLeftAnimationDuration ??
+            const Duration(milliseconds: 200),
+        delay: Duration.zero,
+        child: child,
+      );
+    }
   }
 
   Align buildReactionsPicker(BuildContext context, _LocalTheme theme) {
@@ -341,12 +502,8 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
               mainAxisSize: MainAxisSize.min,
               children: [
                 for (var i = 0; i < allReactions.length; i++)
-                  FadeInLeft(
+                  fadeDependingOnPosition(
                     from: 0 + (i * 20).toDouble(),
-                    duration:
-                        widget.reactionPickerFadeLeftAnimationDuration ??
-                        const Duration(milliseconds: 200),
-                    delay: Duration.zero,
                     child: InkWell(
                       child: Container(
                         margin: const EdgeInsets.only(right: 2),
@@ -389,12 +546,8 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
                     ),
                   ),
                 if (widget.onMoreReactionsTap != null)
-                  FadeInLeft(
+                  fadeDependingOnPosition(
                     from: 0 + (allReactions.length * 20).toDouble(),
-                    duration:
-                        widget.reactionPickerFadeLeftAnimationDuration ??
-                        const Duration(milliseconds: 200),
-                    delay: Duration.zero,
                     child: InkWell(
                       onTap: () {
                         _hidePickerAndMenuBeforePop();
@@ -437,7 +590,8 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
 ///
 void showReactionsDialog(
   BuildContext context,
-  Message message, {
+  Message message,
+  LongPressStartDetails details, {
   required bool isSentByMe,
   required Function(String) onReactionTap,
   VoidCallback? onMoreReactionsTap,
@@ -455,57 +609,104 @@ void showReactionsDialog(
   Duration? reactionTapAnimationDuration,
   Duration? reactionPickerFadeLeftAnimationDuration,
   Widget? moreReactionsWidget,
+  EdgeInsetsGeometry? menuItemPadding,
+  double horizontalMessagePadding = 8,
+  bool onlyMenu = false,
 }) {
-  final providers = ChatProviders.from(context);
+  HapticFeedback.mediumImpact();
 
-  final widget = buildMessageContent(
-    context,
-    context.read<Builders>(),
-    message,
-    0,
-    isSentByMe: isSentByMe,
-    isInsideMenu: true,
-  );
+  final List<SingleChildWidget> providers = ChatProviders.from(context);
+
+  // Get the message widget's position and size
+  final renderBox = context.findRenderObject() as RenderBox?;
+  Offset? messageOffset;
+  Size? messageSize;
+
+  if (renderBox != null) {
+    // Use the long press details to calculate the message position
+    // details.globalPosition is where the user pressed in global coordinates
+    // details.localPosition is where the user pressed relative to the ChatMessage widget
+    // The top of the ChatMessage = globalPosition.dy - localPosition.dy
+    final chatMessageTop = details.globalPosition.dy - details.localPosition.dy;
+
+    // Get the size from renderBox
+    messageSize = renderBox.size;
+
+    // Use chatMessageTop as the offset
+    // This gives us the top of the entire ChatMessage widget
+    // The Row with the actual message is inside, but this should be close enough
+    messageOffset = Offset(
+      renderBox.localToGlobal(Offset.zero).dx,
+      chatMessageTop,
+    );
+  }
+
+  // Calculate if position needs adjustment to determine animation duration
+  final mediaQuery = MediaQuery.of(context);
+  final screenHeight = mediaQuery.size.height;
+  final safeAreaTop = mediaQuery.padding.top;
+  final safeAreaBottom = mediaQuery.padding.bottom;
+
+  var needsPositionAdjustment = false;
+  if (messageOffset != null && messageSize != null) {
+    // Rough estimate of total height (actual calculation happens in widget)
+    final estimatedTotalHeight =
+        60 + messageSize.height + 150; // picker + message + menu estimate
+    final desiredTop = messageOffset.dy - 60;
+
+    needsPositionAdjustment =
+        (desiredTop + estimatedTotalHeight > screenHeight - safeAreaBottom) ||
+        (desiredTop < safeAreaTop);
+  }
 
   Navigator.push(
     context,
     new PageRouteBuilder(
       barrierDismissible: true,
       barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-      barrierColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.1),
       fullscreenDialog: true,
       opaque: false,
-      transitionDuration: Duration(milliseconds: 500),
+      transitionDuration: Duration(
+        milliseconds: needsPositionAdjustment ? 200 : 150,
+      ),
+      reverseTransitionDuration: Duration(
+        milliseconds: needsPositionAdjustment ? 200 : 150,
+      ),
       pageBuilder: (BuildContext context, animation1, animation2) {
         return MultiProvider(
           providers: providers,
-          child: SafeArea(
-            child: ReactionsDialogWidget(
-              messageWidget: widget,
-              messageId: message.id,
-              widgetAlignment:
-                  widgetAlignment ??
-                  (isSentByMe ? Alignment.centerRight : Alignment.centerLeft),
-              onReactionTap: (reaction) {
-                onReactionTap(reaction);
-              },
-              onMoreReactionsTap: onMoreReactionsTap,
-              menuItems: menuItems,
-              reactions: reactions,
-              userReactions: userReactions,
-              menuItemsWidthRatio: menuItemsWidthRatio,
-              menuItemBackgroundColor: menuItemBackgroundColor,
-              menuItemDestructiveColor: menuItemDestructiveColor,
-              menuItemDividerColor: menuItemDividerColor,
-              reactionsPickerBackgroundColor: reactionsPickerBackgroundColor,
-              reactionsPickerReactedBackgroundColor:
-                  reactionsPickerReactedBackgroundColor,
-              menuItemTapAnimationDuration: menuItemTapAnimationDuration,
-              reactionTapAnimationDuration: reactionTapAnimationDuration,
-              reactionPickerFadeLeftAnimationDuration:
-                  reactionPickerFadeLeftAnimationDuration,
-              moreReactionsWidget: moreReactionsWidget,
-            ),
+          child: ReactionsDialogWidget(
+            message: message,
+            onlyMenu: onlyMenu,
+            horizontalMessagePadding: horizontalMessagePadding,
+            isSentByMe: isSentByMe,
+            needsPositionAdjustment: needsPositionAdjustment,
+            widgetAlignment:
+                widgetAlignment ??
+                (isSentByMe ? Alignment.centerRight : Alignment.centerLeft),
+            onReactionTap: (reaction) {
+              onReactionTap(reaction);
+            },
+            onMoreReactionsTap: onMoreReactionsTap,
+            menuItems: menuItems,
+            reactions: reactions,
+            userReactions: userReactions,
+            menuItemsWidthRatio: menuItemsWidthRatio,
+            menuItemBackgroundColor: menuItemBackgroundColor,
+            menuItemDestructiveColor: menuItemDestructiveColor,
+            menuItemDividerColor: menuItemDividerColor,
+            reactionsPickerBackgroundColor: reactionsPickerBackgroundColor,
+            reactionsPickerReactedBackgroundColor:
+                reactionsPickerReactedBackgroundColor,
+            menuItemTapAnimationDuration: menuItemTapAnimationDuration,
+            reactionTapAnimationDuration: reactionTapAnimationDuration,
+            reactionPickerFadeLeftAnimationDuration:
+                reactionPickerFadeLeftAnimationDuration,
+            moreReactionsWidget: moreReactionsWidget,
+            messageOffset: messageOffset!, //TODO: Handle null with a fallback
+            messageSize: messageSize!, //TODO: Handle null with a fallback
+            menuItemPadding: menuItemPadding,
           ),
         );
       },

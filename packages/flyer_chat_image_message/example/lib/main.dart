@@ -228,91 +228,47 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
               int index, {
               required bool isSentByMe,
               MessageGroupStatus? groupStatus,
-              bool? isInsideMenu,
             }) {
-              final messageWidget = MultiProvider(
-                providers: [
-                  Provider.value(value: _currentUserId),
-                  Provider.value(value: () {}),
-                  Provider.value(value: _chatController),
-                  Provider.value(
-                    value: ChatTheme.light().copyWith(
-                      colors: ChatColors(
-                        primary: Color(0xFF545AFA),
-                        onPrimary: Colors.white,
-                        surface: Colors.white,
-                        onSurface: Color(0xFF1F1F1F),
-                        surfaceContainer: const Color(0xffF5F6FF),
-                        surfaceContainerLow: Color(
-                          0xFFFFF5CE,
-                        ).withValues(alpha: 1),
-                        surfaceContainerHigh: const Color(
-                          0xfff5f5f7,
-                        ).withValues(alpha: 0.95),
-                        surfaceContainerHighest: const Color(0xfff5f5f7),
-                      ),
-                    ),
+              return DefaultTextStyle(
+                style: const TextStyle(fontSize: 14, color: Colors.black),
+                child: FlyerChatTextMessage(
+                  message: message,
+                  index: index,
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.75,
                   ),
-                  Provider.value(value: Builders()),
-                  //Provider.value(value: _crossCache),
-                  /* if (widget.userCache != null)
-                          ChangeNotifierProvider.value(value: _userCache)
-                        else
-                          ChangeNotifierProvider(create: (_) => _userCache), */
-                  Provider.value(value: DateFormat.Hm()),
-                  /* Provider.value(value: widget.onMessageSend),
-                        Provider.value(value: widget.onMessageTap),
-                        Provider.value(value: widget.onMessageLongPress),
-                        Provider.value(value: widget.onAttachmentTap), */
-                  ChangeNotifierProvider(
-                    create: (_) => ComposerHeightNotifier(),
+                  receivedTextStyle: TextStyle(
+                    color: Color(0xFF1F1F1F),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
                   ),
-                  ChangeNotifierProvider(create: (_) => LoadMoreNotifier()),
-                ],
-
-                child: DefaultTextStyle(
-                  style: const TextStyle(fontSize: 14, color: Colors.black),
-                  child: FlyerChatTextMessage(
-                    message: message,
-                    index: index,
-                    receivedTextStyle: TextStyle(
-                      color: Color(0xFF1F1F1F),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
+                  sentTextStyle: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(12),
+                    topRight: const Radius.circular(12),
+                    bottomLeft: Radius.circular(
+                      isSentByMe
+                          ? 12
+                          : ((groupStatus?.isLast == true ||
+                                  groupStatus == null)
+                              ? 0
+                              : 12),
                     ),
-                    sentTextStyle: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
+                    bottomRight: Radius.circular(
+                      isSentByMe
+                          ? ((groupStatus?.isLast == true ||
+                                  groupStatus == null)
+                              ? 0
+                              : 12)
+                          : 12,
                     ),
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(12),
-                      topRight: const Radius.circular(12),
-                      bottomLeft: Radius.circular(
-                        isSentByMe
-                            ? 12
-                            : ((groupStatus?.isLast == true ||
-                                    groupStatus == null)
-                                ? 0
-                                : 12),
-                      ),
-                      bottomRight: Radius.circular(
-                        isSentByMe
-                            ? ((groupStatus?.isLast == true ||
-                                    groupStatus == null)
-                                ? 0
-                                : 12)
-                            : 12,
-                      ),
-                    ),
-                    /* isSentByMe: isSentByMe,
-                      groupStatus: groupStatus, */
                   ),
                 ),
               );
-              return isInsideMenu != true
-                  ? Hero(tag: message.id, child: messageWidget)
-                  : messageWidget;
             },
             imageMessageBuilder: (
               BuildContext context,
@@ -410,7 +366,8 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
                 message: message,
                 index: index,
                 animation: animation,
-                headerWidget: Center(
+                horizontalPadding: 12,
+                /* headerWidget: Center(
                   child: Container(
                     margin: EdgeInsets.only(bottom: 8, top: 8),
                     padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -435,6 +392,8 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
                     ),
                   ),
                 ),
+
+                 */
                 child: child,
               );
             },
@@ -470,20 +429,42 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
           onMessageLongPress: (
             context,
             message, {
-            LongPressStartDetails? details,
-            int? index,
+            required LongPressStartDetails details,
             required isSentByMe,
+            int? index,
           }) {
             showReactionsDialog(
               context,
               message,
+              details,
               isSentByMe: isSentByMe,
+              horizontalMessagePadding: 12,
               onReactionTap: (_) {},
+              onlyMenu: true,
               menuItems: [
-                MenuItem(title: 'Like', icon: Icons.thumb_up),
-                MenuItem(title: 'Love', icon: Icons.favorite),
-                MenuItem(title: 'Laugh', icon: Icons.emoji_emotions),
+                MenuItem(
+                  title: 'Copy',
+                  icon: Icons.copy_outlined,
+                  onTap: () {},
+                ),
+                MenuItem(
+                  title: 'Like',
+                  icon: Icons.favorite_outline,
+                  onTap: () {},
+                ),
+                MenuItem(
+                  title: 'Delete',
+                  icon: Icons.delete_outline,
+                  isDestructive: true,
+                  onTap: () {},
+                ),
               ],
+              menuItemDividerColor: Colors.grey.shade300,
+              menuItemsWidthRatio: 0.6,
+              menuItemPadding: EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 10,
+              ),
             );
           },
           onMessageSend: (text) {

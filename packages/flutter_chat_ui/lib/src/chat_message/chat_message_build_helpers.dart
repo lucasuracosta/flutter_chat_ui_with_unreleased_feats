@@ -12,19 +12,21 @@ Widget buildMessageContent(
   MessageGroupStatus? groupStatus,
   bool? isInsideMenu,
 }) {
+  late Widget messageContent;
   switch (message) {
     case TextMessage():
-      return builders.textMessageBuilder?.call(
+      messageContent =
+          builders.textMessageBuilder?.call(
             context,
             message,
             index,
             isSentByMe: isSentByMe,
             groupStatus: groupStatus,
-            isInsideMenu: isInsideMenu,
           ) ??
           SimpleTextMessage(message: message, index: index);
     case TextStreamMessage():
-      return builders.textStreamMessageBuilder?.call(
+      messageContent =
+          builders.textStreamMessageBuilder?.call(
             context,
             message,
             index,
@@ -48,9 +50,10 @@ Widget buildMessageContent(
         'Use builders parameter of Chat widget to provide an image message widget. '
         'If you want to use default image message widget, install flyer_chat_image_message package and use FlyerChatImageMessage widget.',
       );
-      return result;
+      messageContent = result;
     case FileMessage():
-      return builders.fileMessageBuilder?.call(
+      messageContent =
+          builders.fileMessageBuilder?.call(
             context,
             message,
             index,
@@ -59,7 +62,8 @@ Widget buildMessageContent(
           ) ??
           const SizedBox.shrink();
     case VideoMessage():
-      return builders.videoMessageBuilder?.call(
+      messageContent =
+          builders.videoMessageBuilder?.call(
             context,
             message,
             index,
@@ -68,7 +72,8 @@ Widget buildMessageContent(
           ) ??
           const SizedBox.shrink();
     case AudioMessage():
-      return builders.audioMessageBuilder?.call(
+      messageContent =
+          builders.audioMessageBuilder?.call(
             context,
             message,
             index,
@@ -77,7 +82,8 @@ Widget buildMessageContent(
           ) ??
           const SizedBox.shrink();
     case SystemMessage():
-      return builders.systemMessageBuilder?.call(
+      messageContent =
+          builders.systemMessageBuilder?.call(
             context,
             message,
             index,
@@ -86,7 +92,8 @@ Widget buildMessageContent(
           ) ??
           const SizedBox.shrink();
     case CustomMessage():
-      return builders.customMessageBuilder?.call(
+      messageContent =
+          builders.customMessageBuilder?.call(
             context,
             message,
             index,
@@ -95,7 +102,8 @@ Widget buildMessageContent(
           ) ??
           const SizedBox.shrink();
     case UnsupportedMessage():
-      return builders.unsupportedMessageBuilder?.call(
+      messageContent =
+          builders.unsupportedMessageBuilder?.call(
             context,
             message,
             index,
@@ -104,4 +112,11 @@ Widget buildMessageContent(
           ) ??
           const Text('This message is not supported. Please update your app.');
   }
+
+  // By default we provide the functionality of Hero animation for message content.
+  // But when the message is being displayed inside a menu (e.g. reactions dialog),
+  // we can't have a nested Hero, so we check for isInsideMenu flag.
+  return isInsideMenu == true
+      ? messageContent
+      : Hero(tag: message.id, child: messageContent);
 }

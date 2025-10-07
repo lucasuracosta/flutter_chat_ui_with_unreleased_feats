@@ -15,7 +15,6 @@ typedef TextMessageBuilder =
       int index, {
       required bool isSentByMe,
       MessageGroupStatus? groupStatus,
-      bool? isInsideMenu,
     });
 
 /// Signature for building a streaming text message widget.
