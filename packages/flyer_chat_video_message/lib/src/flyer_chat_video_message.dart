@@ -262,6 +262,13 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
             )
             : null;
 
+    Widget useHero(bool enabled, {required Widget child}) {
+      if (enabled) {
+        return Hero(tag: widget.message.id, child: child);
+      }
+      return child;
+    }
+
     return ClipRRect(
       borderRadius: widget.borderRadius ?? theme.shape,
       child: Container(
@@ -303,8 +310,8 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Hero(
-                    tag: widget.message.id,
+                  useHero(
+                    widget.openFullScreenPlayerOnTap,
                     child:
                         _placeholderProvider != null
                             ? Image(
