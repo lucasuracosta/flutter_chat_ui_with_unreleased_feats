@@ -32,7 +32,7 @@ typedef OnMessageLongPressCallback =
       BuildContext context,
       Message message, {
       int index,
-      LongPressStartDetails details,
+      required LongPressStartDetails details,
       required bool isSentByMe,
     });
 
