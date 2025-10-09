@@ -232,73 +232,63 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
           Navigator.of(context).pop();
         }
       },
-      child: GestureDetector(
-        onTap: () {
-          _hidePickerAndMenuBeforePop();
-          if (context.mounted) {
-            Navigator.of(context).pop();
-          }
-        },
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-          child: SizedBox.expand(
-            child: Stack(
-              children: [
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        child: SizedBox.expand(
+          child: Stack(
+            children: [
+              Positioned.directional(
+                textDirection:
+                    widget.isSentByMe ? TextDirection.rtl : TextDirection.ltr,
+                start: widget.horizontalMessagePadding,
+                top: calculatedTop,
+                width: widget.messageSize.width,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    buildMessage(),
+                    AnimatedScale(
+                      key: _menuItemsKey,
+                      scale: _showPickerAndMenu ? 1.0 : 0.5,
+                      duration: const Duration(milliseconds: 150),
+                      alignment:
+                          widget.isSentByMe
+                              ? Alignment.topRight
+                              : Alignment.topLeft,
+                      child: AnimatedOpacity(
+                        opacity: _showPickerAndMenu ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 150),
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: buildMenuItems(context, theme),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Reactions are in a separate positioned widget so that we can
+              // use the message offset for the message itself and then set
+              // the reactions above it avoiding calculations to compensate for the reactions
+              if (!widget.onlyMenu)
                 Positioned.directional(
                   textDirection:
                       widget.isSentByMe ? TextDirection.rtl : TextDirection.ltr,
                   start: widget.horizontalMessagePadding,
-                  top: calculatedTop,
+                  bottom: (mediaQuery.size.height - calculatedTop),
                   width: widget.messageSize.width,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    children: [
-                      buildMessage(),
-                      AnimatedScale(
-                        key: _menuItemsKey,
-                        scale: _showPickerAndMenu ? 1.0 : 0.5,
-                        duration: const Duration(milliseconds: 150),
-                        alignment:
-                            widget.isSentByMe
-                                ? Alignment.topRight
-                                : Alignment.topLeft,
-                        child: AnimatedOpacity(
-                          opacity: _showPickerAndMenu ? 1.0 : 0.0,
-                          duration: const Duration(milliseconds: 150),
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: 10),
-                            child: buildMenuItems(context, theme),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Reactions are in a separate positioned widget so that we can
-                // use the message offset for the message itself and then set
-                // the reactions above it avoiding calculations to compensate for the reactions
-                if (!widget.onlyMenu)
-                  Positioned.directional(
-                    textDirection:
-                        widget.isSentByMe
-                            ? TextDirection.rtl
-                            : TextDirection.ltr,
-                    start: widget.horizontalMessagePadding,
-                    bottom: (mediaQuery.size.height - calculatedTop),
-                    width: widget.messageSize.width,
-                    child: AnimatedOpacity(
-                      key: _reactionsPickerKey,
-                      opacity: _showPickerAndMenu ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 150),
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: buildReactionsPicker(context, theme),
-                      ),
+                  child: AnimatedOpacity(
+                    key: _reactionsPickerKey,
+                    opacity: _showPickerAndMenu ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 150),
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: buildReactionsPicker(context, theme),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         ),
       ),
@@ -309,46 +299,47 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
     final destructiveColor = widget.menuItemDestructiveColor ?? Colors.red;
     return Align(
       alignment: widget.widgetAlignment ?? Alignment.centerRight,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          /// TODO: maybe use pixels, for desktop?
-          width:
-              MediaQuery.of(context).size.width *
-              (widget.menuItemsWidthRatio ?? 0.45),
-          decoration: BoxDecoration(
-            color: widget.menuItemBackgroundColor ?? theme.surface,
-            borderRadius: theme.shape,
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (var item in widget.menuItems ?? const [])
-                Column(
-                  children: [
-                    Padding(
-                      padding:
-                          widget.menuItemPadding ?? const EdgeInsets.all(8),
-                      child: InkWell(
-                        onTap: () {
-                          setState(() {
-                            clickedContextMenuIndex = widget.menuItems?.indexOf(
-                              item,
-                            );
-                          });
+      child: Container(
+        /// TODO: maybe use pixels, for desktop?
+        width:
+            MediaQuery.of(context).size.width *
+            (widget.menuItemsWidthRatio ?? 0.45),
+        decoration: BoxDecoration(
+          color: widget.menuItemBackgroundColor ?? theme.surface,
+          borderRadius: theme.shape,
+        ),
+        clipBehavior: Clip.hardEdge,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var item in widget.menuItems ?? const [])
+              Column(
+                children: [
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          clickedContextMenuIndex = widget.menuItems?.indexOf(
+                            item,
+                          );
+                        });
 
+                        Future.delayed(
+                          widget.menuItemTapAnimationDuration ??
+                              const Duration(milliseconds: 200),
+                        ).whenComplete(() {
                           _hidePickerAndMenuBeforePop();
-                          Future.delayed(
-                            widget.menuItemTapAnimationDuration ??
-                                const Duration(milliseconds: 200),
-                          ).whenComplete(() {
-                            if (context.mounted) {
-                              Navigator.of(context).pop();
-                            }
-                            item.onTap?.call();
-                          });
-                        },
+                          if (context.mounted) {
+                            Navigator.of(context).pop();
+                          }
+                          item.onTap?.call();
+                        });
+                      },
+                      child: Padding(
+                        padding:
+                            widget.menuItemPadding ?? const EdgeInsets.all(8),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -361,36 +352,27 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
                                         : theme.onSurface,
                               ),
                             ),
-                            Pulse(
-                              infinite: false,
-                              duration:
-                                  widget.menuItemTapAnimationDuration ??
-                                  const Duration(milliseconds: 100),
-                              animate:
-                                  clickedContextMenuIndex ==
-                                  widget.menuItems?.indexOf(item),
-                              child: Icon(
-                                item.icon,
-                                color:
-                                    item.isDestructive
-                                        ? destructiveColor
-                                        : theme.onSurface,
-                              ),
+                            Icon(
+                              item.icon,
+                              color:
+                                  item.isDestructive
+                                      ? destructiveColor
+                                      : theme.onSurface,
                             ),
                           ],
                         ),
                       ),
                     ),
-                    if (widget.menuItems?.last != item)
-                      Divider(
-                        color: widget.menuItemDividerColor ?? Colors.white,
-                        thickness: 0.5,
-                        height: 0.5,
-                      ),
-                  ],
-                ),
-            ],
-          ),
+                  ),
+                  if (widget.menuItems?.last != item)
+                    Divider(
+                      color: widget.menuItemDividerColor ?? Colors.white,
+                      thickness: 0.5,
+                      height: 0.5,
+                    ),
+                ],
+              ),
+          ],
         ),
       ),
     );
@@ -533,10 +515,10 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
                           reactionClicked = true;
                           clickedReactionIndex = i;
                         });
-                        _hidePickerAndMenuBeforePop();
                         Future.delayed(
                           reactionTapAnimationDuration,
                         ).whenComplete(() {
+                          _hidePickerAndMenuBeforePop();
                           if (context.mounted) {
                             Navigator.of(context).pop();
                           }
@@ -550,10 +532,10 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
                     from: 0 + (allReactions.length * 20).toDouble(),
                     child: InkWell(
                       onTap: () {
-                        _hidePickerAndMenuBeforePop();
                         Future.delayed(
                           const Duration(milliseconds: 100),
                         ).whenComplete(() {
+                          _hidePickerAndMenuBeforePop();
                           if (context.mounted) {
                             Navigator.of(context).pop();
                           }
