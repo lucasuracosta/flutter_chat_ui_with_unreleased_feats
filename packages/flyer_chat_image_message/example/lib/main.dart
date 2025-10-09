@@ -6,6 +6,7 @@ import 'package:flutter_chat_ui/flutter_chat_ui.dart';
 import 'package:flyer_chat_image_message/flyer_chat_image_message.dart';
 import 'package:flyer_chat_reactions/flyer_chat_reactions.dart';
 import 'package:flyer_chat_text_message/flyer_chat_text_message.dart';
+import 'package:flyer_chat_video_message/flyer_chat_video_message.dart';
 import 'package:provider/provider.dart';
 
 void main() {
@@ -18,7 +19,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flyer Chat Image Message Example',
+      title: 'Flyer Chat Image & Video Message Example',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
@@ -76,7 +77,7 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
   ];
 
   // Sample hardcoded image messages
-  final List<ImageMessage> _sampleMessages = [
+  final List<ImageMessage> _sampleImageMessages = [
     ImageMessage(
       id: 'img1',
       authorId: 'user2',
@@ -136,7 +137,39 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
     ),
   ];
 
-  // Additional text messages after images
+  // Sample hardcoded video messages
+  final List<VideoMessage> _sampleVideoMessages = [
+    VideoMessage(
+      id: 'vid1',
+      authorId: 'user2',
+      createdAt: DateTime.now().add(const Duration(minutes: 5)),
+      source:
+          'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+      width: 640,
+      height: 360,
+    ),
+    VideoMessage(
+      id: 'vid2',
+      authorId: 'user1',
+      createdAt: DateTime.now().add(const Duration(minutes: 6)),
+      source:
+          'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
+      width: 640,
+      height: 360,
+      status: MessageStatus.sent,
+    ),
+    VideoMessage(
+      id: 'vid3',
+      authorId: 'user2',
+      createdAt: DateTime.now().add(const Duration(minutes: 7)),
+      source:
+          'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
+      width: 1280,
+      height: 720,
+    ),
+  ];
+
+  // Additional text messages after images and videos
   final List<TextMessage> _sampleTextMessagesAfter = [
     TextMessage(
       id: 'txt6',
@@ -164,6 +197,19 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
       text: 'It was up in the mountains. Perfect weather for photography!',
       status: MessageStatus.delivered,
     ),
+    TextMessage(
+      id: 'txt10',
+      authorId: 'user2',
+      createdAt: DateTime.now().add(const Duration(minutes: 8)),
+      text: 'I also took some videos! Check them out:',
+    ),
+    TextMessage(
+      id: 'txt11',
+      authorId: 'user1',
+      createdAt: DateTime.now().add(const Duration(minutes: 9)),
+      text: 'Amazing videos! The scenery is breathtaking! 🎥',
+      status: MessageStatus.sent,
+    ),
   ];
 
   @override
@@ -173,7 +219,8 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
     // Add all messages in chronological order
     final allMessages = <Message>[
       ..._sampleTextMessages,
-      ..._sampleMessages,
+      ..._sampleImageMessages,
+      ..._sampleVideoMessages,
       ..._sampleTextMessagesAfter,
     ];
 
@@ -198,7 +245,7 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
-        title: const Text('Image Message Examples'),
+        title: const Text('Image & Video Message Examples'),
         centerTitle: true,
       ),
       body: MultiProvider(
@@ -345,6 +392,64 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
                 showTime: true,
                 showStatus: true,
                 timeAndStatusPosition: TimeAndStatusPosition.end,
+              );
+            },
+            videoMessageBuilder: (
+              BuildContext context,
+              VideoMessage message,
+              int index, {
+              required bool isSentByMe,
+              MessageGroupStatus? groupStatus,
+            }) {
+              return FlyerChatVideoMessage(
+                message: message,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(12),
+                  topRight: const Radius.circular(12),
+                  bottomLeft: Radius.circular(
+                    isSentByMe
+                        ? 12
+                        : ((groupStatus?.isLast == true || groupStatus == null)
+                            ? 0
+                            : 12),
+                  ),
+                  bottomRight: Radius.circular(
+                    isSentByMe
+                        ? ((groupStatus?.isLast == true || groupStatus == null)
+                            ? 0
+                            : 12)
+                        : 12,
+                  ),
+                ),
+                constraints: const BoxConstraints(
+                  maxHeight: 300,
+                  maxWidth: 250,
+                ),
+                containerPadding: const EdgeInsets.all(3),
+                uploadOverlayColor: Colors.green.withOpacity(0.3),
+                uploadIndicatorColor: Colors.green,
+                timeStyle: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+                timeBackground: Colors.black.withOpacity(0.7),
+                showTime: true,
+                showStatus: true,
+                openFullScreenPlayerOnTap: false,
+                timeAndStatusPosition: TimeAndStatusPosition.end,
+                playIconColor: Colors.white,
+                playIconSize: 56,
+                onThumbnailGenerated: (thumbnail) {
+                  // Save thumbnail to message metadata to avoid regenerating
+                  final updatedMessage = message.copyWith(
+                    metadata: {
+                      ...?message.metadata,
+                      'thumbnail': thumbnail,
+                    },
+                  );
+                  _chatController.updateMessage(message, updatedMessage);
+                },
               );
             },
             composerBuilder: (p0) {
