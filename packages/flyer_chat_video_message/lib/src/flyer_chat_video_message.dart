@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:cross_cache/cross_cache.dart';
 import 'package:flutter/material.dart';
@@ -99,6 +100,11 @@ class FlyerChatVideoMessage extends StatefulWidget {
   /// Allowing the user to implement their own custom behavior.
   final bool openFullScreenPlayerOnTap;
 
+  /// Callback that fires when a thumbnail is generated for the video.
+  /// Returns the thumbnail as Uint8List which can be saved to message metadata
+  /// to avoid regenerating the thumbnail on subsequent builds.
+  final void Function(Uint8List thumbnail)? onThumbnailGenerated;
+
   /// Creates a widget to display an video message.
   const FlyerChatVideoMessage({
     super.key,
@@ -127,6 +133,7 @@ class FlyerChatVideoMessage extends StatefulWidget {
     this.overlay,
     this.statusIconSize,
     this.statusIconColor,
+    this.onThumbnailGenerated,
   });
 
   @override
@@ -165,10 +172,14 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
     }
 
     _chatController = context.read<ChatController>();
-    try {
-      _generateImageCover();
-    } catch (e) {
-      debugPrint('Could not generate image cover: ${e.toString()}');
+
+    // Only generate thumbnail if not already in metadata
+    if (widget.message.metadata?['thumbnail'] is! Uint8List) {
+      try {
+        _generateImageCover();
+      } catch (e) {
+        debugPrint('Could not generate image cover: ${e.toString()}');
+      }
     }
   }
 
@@ -189,11 +200,17 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
     try {
       // Try to get cached thumbnail first
       final cachedThumbnail = await crossCache.get(cacheKey);
-      if (mounted) {
+
+      // Only update state if metadata doesn't already have thumbnail
+      if (mounted && widget.message.metadata?['thumbnail'] is! Uint8List) {
         setState(() {
           _placeholderProvider = MemoryImage(cachedThumbnail);
         });
       }
+
+      // Call the callback with cached thumbnail
+      widget.onThumbnailGenerated?.call(cachedThumbnail);
+
       return;
     } catch (e) {
       // Cache miss, generate new thumbnail
@@ -215,11 +232,15 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
         debugPrint('Could not cache video thumbnail: ${e.toString()}');
       }
 
-      if (mounted) {
+      // Only update state if metadata doesn't already have thumbnail
+      if (mounted && widget.message.metadata?['thumbnail'] is! Uint8List) {
         setState(() {
           _placeholderProvider = MemoryImage(coverImageBytes);
         });
       }
+
+      // Call the callback with newly generated thumbnail
+      widget.onThumbnailGenerated?.call(coverImageBytes);
     }
   }
 
@@ -313,7 +334,15 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
                   useHero(
                     widget.openFullScreenPlayerOnTap,
                     child:
-                        _placeholderProvider != null
+                        widget.message.metadata?['thumbnail'] is Uint8List
+                            ? Image(
+                              image: MemoryImage(
+                                widget.message.metadata!['thumbnail']
+                                    as Uint8List,
+                              ),
+                              fit: BoxFit.fill,
+                            )
+                            : _placeholderProvider != null
                             ? Image(
                               image: _placeholderProvider!,
                               fit: BoxFit.fill,
