@@ -581,7 +581,7 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
 /// Method to display the reactions dialog for a message
 /// Refer to [ReactionsDialogWidget] for the available parameters
 ///
-void showReactionsDialog(
+dynamic showReactionsDialog(
   BuildContext context,
   Message message,
   LongPressStartDetails details, {
@@ -605,7 +605,7 @@ void showReactionsDialog(
   EdgeInsetsGeometry? menuItemPadding,
   double horizontalMessagePadding = 8,
   bool onlyMenu = false,
-}) {
+}) async {
   HapticFeedback.mediumImpact();
 
   final List<SingleChildWidget> providers = ChatProviders.from(context);
@@ -652,7 +652,7 @@ void showReactionsDialog(
         (desiredTop < safeAreaTop);
   }
 
-  Navigator.push(
+  return await Navigator.push(
     context,
     new PageRouteBuilder(
       barrierDismissible: true,
@@ -705,5 +705,4 @@ void showReactionsDialog(
       },
     ),
   );
-  return;
 }
