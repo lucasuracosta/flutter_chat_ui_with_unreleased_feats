@@ -158,6 +158,17 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
             _showPickerAndMenu = true;
           });
         });
+      } else if (mounted && widget.needsPositionAdjustment) {
+        // If position adjustment is needed, this adds redundancy to ensure
+        // the menu and picker are shown after the position is settled
+        // in case the flightShuttleBuilder logic doesn't trigger it
+        Timer(const Duration(milliseconds: 150), () {
+          if (!_showPickerAndMenu && mounted) {
+            setState(() {
+              _showPickerAndMenu = true;
+            });
+          }
+        });
       }
     });
   }
