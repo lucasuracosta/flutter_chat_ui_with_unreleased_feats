@@ -5,6 +5,7 @@ class MenuItem {
   final IconData icon;
   final bool isDestructive;
   final Function()? onTap;
+  final Widget? customIcon;
 
   // constructor
   const MenuItem({
@@ -12,5 +13,6 @@ class MenuItem {
     required this.icon,
     this.isDestructive = false,
     this.onTap,
+    this.customIcon,
   });
 }

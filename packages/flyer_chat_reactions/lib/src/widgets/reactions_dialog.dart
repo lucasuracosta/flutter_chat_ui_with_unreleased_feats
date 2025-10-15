@@ -363,13 +363,14 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
                                         : theme.onSurface,
                               ),
                             ),
-                            Icon(
-                              item.icon,
-                              color:
-                                  item.isDestructive
-                                      ? destructiveColor
-                                      : theme.onSurface,
-                            ),
+                            item.customIcon ??
+                                Icon(
+                                  item.icon,
+                                  color:
+                                      item.isDestructive
+                                          ? destructiveColor
+                                          : theme.onSurface,
+                                ),
                           ],
                         ),
                       ),
