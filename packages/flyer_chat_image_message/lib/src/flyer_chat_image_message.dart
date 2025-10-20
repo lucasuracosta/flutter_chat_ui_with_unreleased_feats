@@ -222,6 +222,20 @@ class _FlyerChatImageMessageState extends State<FlyerChatImageMessage>
         if (mounted) {
           _imageProvider = newImage;
         }
+        if (widget.message.width == null || widget.message.height == null) {
+          getImageDimensions(_imageProvider).then((dimensions) {
+            if (mounted) {
+              _aspectRatio = dimensions.$1 / dimensions.$2;
+              _chatController.updateMessage(
+                widget.message,
+                widget.message.copyWith(
+                  width: dimensions.$1,
+                  height: dimensions.$2,
+                ),
+              );
+            }
+          });
+        }
       });
     }
   }
