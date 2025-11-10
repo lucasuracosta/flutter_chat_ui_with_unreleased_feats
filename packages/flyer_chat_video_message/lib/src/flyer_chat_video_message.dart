@@ -89,6 +89,9 @@ class FlyerChatVideoMessage extends StatefulWidget {
   /// An optional overlay widget to display on top of the image
   final Widget? overlay;
 
+  /// The widgets to display before the message.
+  final List<Widget>? topWidgets;
+
   /// Size of the status icon.
   final double? statusIconSize;
 
@@ -131,6 +134,7 @@ class FlyerChatVideoMessage extends StatefulWidget {
     this.highResThumbnailProviderBuilder,
     this.containerPadding = EdgeInsets.zero,
     this.overlay,
+    this.topWidgets,
     this.statusIconSize,
     this.statusIconColor,
     this.onThumbnailGenerated,
@@ -296,11 +300,17 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
         constraints: widget.constraints,
         padding: widget.containerPadding,
         color: _resolveBackgroundColor(isSentByMe, theme),
-        child: ClipRRect(
-          borderRadius: (widget.borderRadius ?? theme.shape) * 0.8,
-          child: AspectRatio(
-            aspectRatio: _aspectRatio,
-            child: GestureDetector(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (widget.topWidgets != null) ...widget.topWidgets!,
+            Flexible(
+              child: ClipRRect(
+                borderRadius: (widget.borderRadius ?? theme.shape) * 0.8,
+                child: AspectRatio(
+                  aspectRatio: _aspectRatio,
+                  child: GestureDetector(
               onTap:
                   widget.openFullScreenPlayerOnTap
                       ? () {
@@ -409,6 +419,9 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
             ),
           ),
         ),
+        ),
+      ],
+    ),
       ),
     );
   }
