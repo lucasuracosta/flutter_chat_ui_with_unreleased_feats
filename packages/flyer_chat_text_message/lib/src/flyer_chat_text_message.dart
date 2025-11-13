@@ -25,8 +25,11 @@ class FlyerChatTextMessage extends StatelessWidget {
   /// The index of the message in the list.
   final int index;
 
-  /// Padding around the message bubble content.
-  final EdgeInsetsGeometry? padding;
+  /// Padding around the text content.
+  ///
+  /// Does not apply to [topWidgets] or link preview widgets, allowing them
+  /// to span the full width of the message bubble.
+  final EdgeInsetsGeometry textPadding;
 
   /// Border radius of the message bubble.
   final BorderRadiusGeometry? borderRadius;
@@ -90,12 +93,24 @@ class FlyerChatTextMessage extends StatelessWidget {
   /// Color of the status icon.
   final Color? statusIconColor;
 
+  /// Padding inside the message container which creates a border around the text.
+  final EdgeInsetsGeometry? containerPadding;
+
+  /// Whether to reserve space for the time and status indicator when positioned.
+  ///
+  /// When `true` (default), an invisible placeholder ensures the text doesn't wrap under
+  /// the positioned time/status. When `false`, allows for a more compact layout where
+  /// the time/status can potentially overlap with available space.
+  ///
+  /// Only applies when [timeAndStatusPosition] is not [TimeAndStatusPosition.inline].
+  final bool reserveTimeAndStatusSpace;
+
   /// Creates a widget to display a text message.
   const FlyerChatTextMessage({
     super.key,
     required this.message,
     required this.index,
-    this.padding = const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+    this.textPadding = const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
     this.borderRadius,
     this.constraints,
     this.onlyEmojiFontSize = 48,
@@ -116,6 +131,8 @@ class FlyerChatTextMessage extends StatelessWidget {
     this.topWidgets,
     this.statusIconSize,
     this.statusIconColor,
+    this.containerPadding = EdgeInsets.zero,
+    this.reserveTimeAndStatusSpace = true,
   });
 
   bool get _isOnlyEmoji => message.metadata?['isOnlyEmoji'] == true;
@@ -179,26 +196,18 @@ class FlyerChatTextMessage extends StatelessWidget {
       borderRadius: borderRadius ?? theme.shape,
       child: Container(
         constraints: constraints,
+        padding: containerPadding,
         decoration: _isOnlyEmoji ? null : BoxDecoration(color: backgroundColor),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              padding:
-                  _isOnlyEmoji
-                      ? EdgeInsets.symmetric(
-                        horizontal: (padding?.horizontal ?? 0) / 2,
-                        vertical: 0,
-                      )
-                      : padding,
-              child: _buildContentBasedOnPosition(
-                context: context,
-                textContent: textContent,
-                timeAndStatus: timeAndStatus,
-                paragraphStyle: paragraphStyle,
-                linkPreviewWidget: linkPreviewWidget,
-              ),
+            _buildContentBasedOnPosition(
+              context: context,
+              textContent: textContent,
+              timeAndStatus: timeAndStatus,
+              paragraphStyle: paragraphStyle,
+              linkPreviewWidget: linkPreviewWidget,
             ),
           ],
         ),
@@ -228,24 +237,32 @@ class FlyerChatTextMessage extends StatelessWidget {
             if (topWidgets != null) ...topWidgets!,
             if (effectiveLinkPreviewPosition == LinkPreviewPosition.top)
               linkPreviewWidget!,
-            timeAndStatusPosition == TimeAndStatusPosition.inline
-                ? Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: timeAndStatusPositionInlineAlignment,
-                  children: [
-                    Flexible(child: textContent),
-                    SizedBox(width: 4),
-                    Padding(
-                      padding:
-                          timeAndStatusPositionInlineInsets ?? EdgeInsets.zero,
-                      child: timeAndStatus,
-                    ),
-                  ],
-                )
-                : textContent,
+            Padding(
+              padding: textPadding,
+              child:
+                  timeAndStatusPosition == TimeAndStatusPosition.inline
+                      ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment:
+                            timeAndStatusPositionInlineAlignment,
+                        children: [
+                          Flexible(child: textContent),
+                          SizedBox(width: 4),
+                          Padding(
+                            padding:
+                                timeAndStatusPositionInlineInsets ??
+                                EdgeInsets.zero,
+                            child: timeAndStatus,
+                          ),
+                        ],
+                      )
+                      : textContent,
+            ),
+
             if (effectiveLinkPreviewPosition == LinkPreviewPosition.bottom)
               linkPreviewWidget!,
-            if (timeAndStatusPosition != TimeAndStatusPosition.inline)
+            if (timeAndStatusPosition != TimeAndStatusPosition.inline &&
+                reserveTimeAndStatusSpace)
               // Ensure the  width is not smaller than the timeAndStatus widget
               // Ensure the height accounts for it's height
               Opacity(opacity: 0, child: timeAndStatus),
@@ -259,7 +276,14 @@ class FlyerChatTextMessage extends StatelessWidget {
             start:
                 timeAndStatusPosition == TimeAndStatusPosition.start ? 0 : null,
             bottom: 0,
-            child: timeAndStatus,
+            child: Padding(
+              // This clamp removes the top and bottom padding
+              padding: textPadding.clamp(
+                EdgeInsetsGeometry.all(0),
+                EdgeInsetsGeometry.fromLTRB(30, 0, 30, 0),
+              ),
+              child: timeAndStatus,
+            ),
           ),
       ],
     );
