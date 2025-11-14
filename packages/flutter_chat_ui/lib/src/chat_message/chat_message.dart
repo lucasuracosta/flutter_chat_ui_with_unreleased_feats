@@ -81,13 +81,23 @@ class ChatMessage extends StatelessWidget {
   final MessageGroupStatus? groupStatus;
 
   /// Default horizontal padding for message items.
+  /// If [leftPadding] or [rightPadding] are provided, they take precedence.
   final double? horizontalPadding;
+
+  /// Left padding for message items. Overrides [horizontalPadding] if provided.
+  final double? leftPadding;
+
+  /// Right padding for message items. Overrides [horizontalPadding] if provided.
+  final double? rightPadding;
 
   /// Default vertical padding between non-grouped messages.
   final double? verticalPadding;
 
   /// Vertical padding between grouped messages.
   final double? verticalGroupedPadding;
+
+  /// Flag indicating if this message is currently selected.
+  final bool isSelectMode;
 
   /// Creates a default chat message wrapper widget.
   const ChatMessage({
@@ -116,8 +126,11 @@ class ChatMessage extends StatelessWidget {
     this.isRemoved,
     this.groupStatus,
     this.horizontalPadding = 8,
+    this.leftPadding,
+    this.rightPadding,
     this.verticalPadding = 12,
     this.verticalGroupedPadding = 2,
+    this.isSelectMode = false,
   });
 
   @override
@@ -151,6 +164,7 @@ class ChatMessage extends StatelessWidget {
             ),
           ),
         GestureDetector(
+          behavior: HitTestBehavior.opaque,
           onTapUp: (details) {
             onMessageTap?.call(
               context,
@@ -160,14 +174,17 @@ class ChatMessage extends StatelessWidget {
               isSentByMe: isSentByMe,
             );
           },
-          onDoubleTap:
-              () => onMessageDoubleTap?.call(
-                context,
-                message,
-                index: index,
-                isSentByMe: isSentByMe,
-              ),
+          onDoubleTap: () {
+            if (isSelectMode) return;
+            onMessageDoubleTap?.call(
+              context,
+              message,
+              index: index,
+              isSentByMe: isSentByMe,
+            );
+          },
           onLongPressStart: (details) {
+            if (isSelectMode) return;
             onMessageLongPress?.call(
               context,
               message,
@@ -229,11 +246,13 @@ class ChatMessage extends StatelessWidget {
       children: [
         if (topWidget != null) topWidget!,
         Row(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize:
+              isSentByMe && isSelectMode ? MainAxisSize.max : MainAxisSize.min,
           crossAxisAlignment:
               isSentByMe
                   ? sentMessageRowAlignment
                   : receivedMessageRowAlignment,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             if (leadingWidget != null) leadingWidget!,
             Flexible(
@@ -264,21 +283,27 @@ class ChatMessage extends StatelessWidget {
   }
 
   EdgeInsetsGeometry _resolveDefaultPadding(BuildContext context) {
+    final resolvedLeftPadding = leftPadding ?? horizontalPadding ?? 0;
+    final resolvedRightPadding = rightPadding ?? horizontalPadding ?? 0;
+
     if (index == 0) {
-      return EdgeInsets.symmetric(horizontal: horizontalPadding ?? 0);
+      return EdgeInsets.only(
+        left: resolvedLeftPadding,
+        right: resolvedRightPadding,
+      );
     }
 
     return groupStatus?.isFirst == false || isRemoved == true
         ? EdgeInsets.fromLTRB(
-          horizontalPadding ?? 0,
+          resolvedLeftPadding,
           verticalGroupedPadding ?? 0,
-          horizontalPadding ?? 0,
+          resolvedRightPadding,
           0,
         )
         : EdgeInsets.fromLTRB(
-          horizontalPadding ?? 0,
+          resolvedLeftPadding,
           verticalPadding ?? 0,
-          horizontalPadding ?? 0,
+          resolvedRightPadding,
           0,
         );
   }

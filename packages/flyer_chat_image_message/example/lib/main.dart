@@ -36,9 +36,17 @@ class ImageMessageExample extends StatefulWidget {
   State<ImageMessageExample> createState() => _ImageMessageExampleState();
 }
 
-class _ImageMessageExampleState extends State<ImageMessageExample> {
+class _ImageMessageExampleState extends State<ImageMessageExample>
+    with TickerProviderStateMixin {
   final _chatController = InMemoryChatController();
   final String _currentUserId = 'user1';
+  final Set<String> _selectedMessageIds = {};
+  bool _isSelectMode = false;
+
+  // Pagination state
+  int _olderMessagesPage = 0;
+  int _newerMessagesPage = 0;
+  final int _messagesPerPage = 5;
 
   // Sample hardcoded text messages
   final List<TextMessage> _sampleTextMessages = [
@@ -212,9 +220,181 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
     ),
   ];
 
+  final Map<String, AnimationController> _animationControllers = {};
+  final Map<String, Animation<Offset>> _slideAnimations = {};
+  final Map<String, Animation<double>> _sizeAnimations = {};
+
+  // Animation controllers for composer and bottom bar
+  late AnimationController _composerAnimationController;
+  late AnimationController _bottomBarAnimationController;
+  late Animation<Offset> _composerSlideAnimation;
+  late Animation<Offset> _bottomBarSlideAnimation;
+
+  AnimationController _getOrCreateAnimationController(String messageId) {
+    return _animationControllers.putIfAbsent(
+      messageId,
+      () => AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: 300),
+      ),
+    );
+  }
+
+  Animation<Offset> _getOrCreateSlideAnimation(String messageId) {
+    return _slideAnimations.putIfAbsent(messageId, () {
+      final controller = _getOrCreateAnimationController(messageId);
+      return Tween<Offset>(
+        begin: const Offset(-1, 0),
+        end: Offset.zero,
+      ).animate(CurvedAnimation(parent: controller, curve: Curves.easeOut));
+    });
+  }
+
+  Animation<double> _getOrCreateSizeAnimation(String messageId) {
+    return _sizeAnimations.putIfAbsent(messageId, () {
+      final controller = _getOrCreateAnimationController(messageId);
+      return Tween<double>(
+        begin: 0.0,
+        end: 1.0,
+      ).animate(CurvedAnimation(parent: controller, curve: Curves.easeOut));
+    });
+  }
+
+  void _enterSelectMode() {
+    setState(() {
+      _isSelectMode = true;
+    });
+    // Animate composer out (slide down)
+    _composerAnimationController.forward();
+    // Animate bottom bar in (slide up)
+    _bottomBarAnimationController.forward();
+    // Animate all message leading widgets in
+    for (final controller in _animationControllers.values) {
+      controller.forward();
+    }
+  }
+
+  void _exitSelectMode() {
+    setState(() {
+      _isSelectMode = false;
+      _selectedMessageIds.clear();
+    });
+    // Animate composer in (slide up)
+    _composerAnimationController.reverse();
+    // Animate bottom bar out (slide down)
+    _bottomBarAnimationController.reverse();
+    // Animate all message leading widgets out
+    for (final controller in _animationControllers.values) {
+      controller.reverse();
+    }
+  }
+
+  // Load older messages (pagination from the top)
+  Future<void> _loadOlderMessages() async {
+    debugPrint('Loading older messages...');
+    // Simulate network delay
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    _olderMessagesPage++;
+
+    // Generate older messages
+    final olderMessages = List.generate(
+      _messagesPerPage,
+      (index) {
+        final messageNumber = _olderMessagesPage * _messagesPerPage + index;
+        return TextMessage(
+          id: 'older_txt_$messageNumber',
+          authorId: messageNumber % 2 == 0 ? 'user2' : 'user1',
+          createdAt: DateTime.now().subtract(
+            Duration(minutes: 100 + messageNumber),
+          ),
+          text: 'This is older message #$messageNumber loaded via onEndReached',
+          status: MessageStatus.delivered,
+        );
+      },
+    );
+
+    // Add older messages to the chat
+    for (final message in olderMessages) {
+      _chatController.insertMessage(message);
+    }
+
+    debugPrint('Loaded ${olderMessages.length} older messages');
+  }
+
+  // Load newer messages (pagination from the bottom)
+  Future<void> _loadNewerMessages() async {
+    debugPrint('Loading newer messages...');
+    // Simulate network delay
+    await Future.delayed(const Duration(seconds: 2));
+
+    if (!mounted) return;
+
+    _newerMessagesPage++;
+
+    // Generate newer messages
+    final newerMessages = List.generate(
+      _messagesPerPage,
+      (index) {
+        final messageNumber = _newerMessagesPage * _messagesPerPage + index;
+        return TextMessage(
+          id: 'newer_txt_$messageNumber',
+          authorId: messageNumber % 2 == 0 ? 'user1' : 'user2',
+          createdAt: DateTime.now().add(
+            Duration(minutes: 100 + messageNumber),
+          ),
+          text: 'This is newer message #$messageNumber loaded via onStartReached',
+          status: MessageStatus.sent,
+        );
+      },
+    );
+
+    // Add newer messages to the chat
+    for (final message in newerMessages) {
+      _chatController.insertMessage(message);
+    }
+
+    debugPrint('Loaded ${newerMessages.length} newer messages');
+  }
+
   @override
   void initState() {
     super.initState();
+
+    // Initialize composer and bottom bar animation controllers
+    _composerAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+
+    _bottomBarAnimationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+
+    // Composer slides down when hiding (Offset(0, 1) means down by 100%)
+    _composerSlideAnimation = Tween<Offset>(
+      begin: Offset.zero,
+      end: const Offset(0, 1),
+    ).animate(
+      CurvedAnimation(
+        parent: _composerAnimationController,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    // Bottom bar slides up from bottom when showing (Offset(0, 1) means below screen)
+    _bottomBarSlideAnimation = Tween<Offset>(
+      begin: const Offset(0, 1),
+      end: Offset.zero,
+    ).animate(
+      CurvedAnimation(
+        parent: _bottomBarAnimationController,
+        curve: Curves.easeInOut,
+      ),
+    );
 
     // Add all messages in chronological order
     final allMessages = <Message>[
@@ -235,6 +415,14 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
 
   @override
   void dispose() {
+    for (final controller in _animationControllers.values) {
+      controller.dispose();
+    }
+    _animationControllers.clear();
+    _slideAnimations.clear();
+    _sizeAnimations.clear();
+    _composerAnimationController.dispose();
+    _bottomBarAnimationController.dispose();
     _chatController.dispose();
     super.dispose();
   }
@@ -245,363 +433,513 @@ class _ImageMessageExampleState extends State<ImageMessageExample> {
       appBar: AppBar(
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
-        title: const Text('Image & Video Message Examples'),
+        title: Text(
+          _isSelectMode
+              ? 'Select Messages'
+              : 'Pagination Test (onStartReached)',
+          style: const TextStyle(fontSize: 16),
+        ),
         centerTitle: true,
+        leading: _isSelectMode ? null : null,
+        automaticallyImplyLeading: false,
+        actions:
+            _isSelectMode
+                ? [
+                  TextButton(
+                    onPressed: _exitSelectMode,
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(color: Colors.black, fontSize: 16),
+                    ),
+                  ),
+                ]
+                : null,
       ),
-      body: MultiProvider(
-        providers: [
-          Provider<ChatController>.value(value: _chatController),
-          Provider<UserID>.value(value: _currentUserId),
-        ],
-        child: Chat(
-          theme: ChatTheme.light().copyWith(
-            colors: ChatColors(
-              primary: Color(0xFF545AFA),
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Color(0xFF1F1F1F),
-              surfaceContainer: const Color(0xffF5F6FF),
-              surfaceContainerLow: Color(0xFFFFF5CE).withValues(alpha: 1),
-              surfaceContainerHigh: const Color(
-                0xfff5f5f7,
-              ).withValues(alpha: 0.95),
-              surfaceContainerHighest: const Color(0xfff5f5f7),
-            ),
+      body: Chat(
+        theme: ChatTheme.light().copyWith(
+          colors: ChatColors(
+            primary: Color(0xFF545AFA),
+            onPrimary: Colors.white,
+            surface: Colors.white,
+            onSurface: Color(0xFF1F1F1F),
+            surfaceContainer: const Color(0xffF5F6FF),
+            surfaceContainerLow: Color(0xFFFFF5CE).withValues(alpha: 1),
+            surfaceContainerHigh: const Color(
+              0xfff5f5f7,
+            ).withValues(alpha: 0.95),
+            surfaceContainerHighest: const Color(0xfff5f5f7),
           ),
-          builders: Builders(
-            textMessageBuilder: (
-              BuildContext context,
-              TextMessage message,
-              int index, {
-              required bool isSentByMe,
-              MessageGroupStatus? groupStatus,
-            }) {
-              return DefaultTextStyle(
-                style: const TextStyle(fontSize: 14, color: Colors.black),
-                child: FlyerChatTextMessage(
-                  message: message,
-                  index: index,
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.75,
-                  ),
-                  receivedTextStyle: TextStyle(
-                    color: Color(0xFF1F1F1F),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w400,
-                  ),
-                  sentTextStyle: TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w400,
-                  ),
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(12),
-                    topRight: const Radius.circular(12),
-                    bottomLeft: Radius.circular(
-                      isSentByMe
-                          ? 12
-                          : ((groupStatus?.isLast == true ||
-                                  groupStatus == null)
-                              ? 0
-                              : 12),
-                    ),
-                    bottomRight: Radius.circular(
-                      isSentByMe
-                          ? ((groupStatus?.isLast == true ||
-                                  groupStatus == null)
-                              ? 0
-                              : 12)
-                          : 12,
-                    ),
-                  ),
-                ),
-              );
-            },
-            imageMessageBuilder: (
-              BuildContext context,
-              ImageMessage message,
-              int index, {
-              required bool isSentByMe,
-              MessageGroupStatus? groupStatus,
-            }) {
-              return FlyerChatImageMessage(
+        ),
+        builders: Builders(
+          chatAnimatedListBuilder: (p0, itemBuilder) {
+            return ChatAnimatedList(
+              itemBuilder: itemBuilder,
+              physics: const BouncingScrollPhysics(),
+              bottomPadding: _isSelectMode ? 8 : 20,
+              handleSafeArea: !_isSelectMode,
+              // Test onEndReached - loads older messages when scrolling to top
+              onEndReached: _loadOlderMessages,
+              paginationThreshold: 0.1,
+              // Test onStartReached - loads newer messages when scrolling to bottom
+              onStartReached: _loadNewerMessages,
+              onStartReachedThreshold: 0.9,
+            );
+          },
+          textMessageBuilder: (
+            BuildContext context,
+            TextMessage message,
+            int index, {
+            required bool isSentByMe,
+            MessageGroupStatus? groupStatus,
+          }) {
+            return DefaultTextStyle(
+              style: const TextStyle(fontSize: 14, color: Colors.black),
+              child: FlyerChatTextMessage(
                 message: message,
                 index: index,
-                customImageProvider: NetworkImage(message.source),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(12),
-                  topRight: const Radius.circular(12),
-                  bottomLeft: Radius.circular(
-                    isSentByMe
-                        ? 12
-                        : ((groupStatus?.isLast == true || groupStatus == null)
-                            ? 0
-                            : 12),
-                  ),
-                  bottomRight: Radius.circular(
-                    isSentByMe
-                        ? ((groupStatus?.isLast == true || groupStatus == null)
-                            ? 0
-                            : 12)
-                        : 12,
-                  ),
-                ),
-                constraints: const BoxConstraints(
-                  maxHeight: 300,
-                  maxWidth: 250,
-                ),
-                containerPadding: const EdgeInsets.all(3),
-                overlay: Positioned(
-                  right: 0,
-                  bottom: 0,
-                  child: Container(
+                textPadding: const EdgeInsets.only(left: 4, right: 6),
+                containerPadding: EdgeInsets.fromLTRB(3.5, 3.5, 3.5, 8),
+                topWidgets: [
+                  Container(
                     constraints: BoxConstraints(
-                      maxHeight: isSentByMe ? 135 : 110,
-                      maxWidth: isSentByMe ? 135 : 110,
+                      maxWidth: MediaQuery.of(context).size.width * 0.3,
                     ),
+                    margin: const EdgeInsets.only(bottom: 4),
+                    height: 50,
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topRight,
-                        end: Alignment.bottomRight,
-                        transform: const GradientRotation(
-                          20 * (-math.pi / 180),
-                        ),
-                        colors: [
-                          Colors.transparent,
-                          Colors.transparent,
-                          Colors.black.withOpacity(0.4),
-                          Colors.black.withOpacity(0.6),
-                        ],
-                        stops: const [0.0, 0.75, 0.90, 1.0],
+                      color: Colors.grey[300],
+                      border: Border(
+                        left: BorderSide(color: Colors.grey, width: 4),
                       ),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Center(child: null),
-                  ),
-                ),
-                placeholderColor: Colors.grey[200],
-                loadingOverlayColor: Colors.blue.withOpacity(0.3),
-                loadingIndicatorColor: Colors.blue,
-                uploadOverlayColor: Colors.green.withOpacity(0.3),
-                uploadIndicatorColor: Colors.green,
-                timeStyle: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-                timeBackground: Colors.black.withOpacity(0.7),
-                showTime: true,
-                showStatus: true,
-                timeAndStatusPosition: TimeAndStatusPosition.end,
-              );
-            },
-            videoMessageBuilder: (
-              BuildContext context,
-              VideoMessage message,
-              int index, {
-              required bool isSentByMe,
-              MessageGroupStatus? groupStatus,
-            }) {
-              return FlyerChatVideoMessage(
-                message: message,
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(12),
-                  topRight: const Radius.circular(12),
-                  bottomLeft: Radius.circular(
-                    isSentByMe
-                        ? 12
-                        : ((groupStatus?.isLast == true || groupStatus == null)
-                            ? 0
-                            : 12),
-                  ),
-                  bottomRight: Radius.circular(
-                    isSentByMe
-                        ? ((groupStatus?.isLast == true || groupStatus == null)
-                            ? 0
-                            : 12)
-                        : 12,
-                  ),
-                ),
-                constraints: const BoxConstraints(
-                  maxHeight: 300,
-                  maxWidth: 250,
-                ),
-                containerPadding: const EdgeInsets.all(3),
-                uploadOverlayColor: Colors.green.withOpacity(0.3),
-                uploadIndicatorColor: Colors.green,
-                timeStyle: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-                timeBackground: Colors.black.withOpacity(0.7),
-                showTime: true,
-                showStatus: true,
-                openFullScreenPlayerOnTap: false,
-                timeAndStatusPosition: TimeAndStatusPosition.end,
-                playIconColor: Colors.white,
-                playIconSize: 56,
-                onThumbnailGenerated: (thumbnail) {
-                  // Save thumbnail to message metadata to avoid regenerating
-                  final updatedMessage = message.copyWith(
-                    metadata: {
-                      ...?message.metadata,
-                      'thumbnail': thumbnail,
-                    },
-                  );
-                  _chatController.updateMessage(message, updatedMessage);
-                },
-              );
-            },
-            composerBuilder: (p0) {
-              return Composer(
-                backgroundColor: Color.fromARGB(223, 247, 247, 247),
-              );
-            },
-            chatMessageBuilder: (
-              p0,
-              message,
-              index,
-              animation,
-              child, {
-              groupStatus,
-              isRemoved,
-              required isSentByMe,
-            }) {
-              return ChatMessage(
-                message: message,
-                index: index,
-                animation: animation,
-                horizontalPadding: 12,
-                /* headerWidget: Center(
-                  child: Container(
-                    margin: EdgeInsets.only(bottom: 8, top: 8),
-                    padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          spreadRadius: 1,
-                          blurRadius: 4,
-                          offset: Offset(0, 1),
-                        ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.max,
+                      children: [
+                        Text('Fake reply'),
+                        Spacer(),
+                        Icon(Icons.image),
                       ],
                     ),
-                    child: Text(
-                      'Monday, 24th April 2025',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                  ),
+                ],
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.75,
+                ),
+                receivedTextStyle: TextStyle(
+                  color: Color(0xFF1F1F1F),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                ),
+                sentTextStyle: TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                ),
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(12),
+                  topRight: const Radius.circular(12),
+                  bottomLeft: Radius.circular(
+                    isSentByMe
+                        ? 12
+                        : ((groupStatus?.isLast == true || groupStatus == null)
+                            ? 0
+                            : 12),
+                  ),
+                  bottomRight: Radius.circular(
+                    isSentByMe
+                        ? ((groupStatus?.isLast == true || groupStatus == null)
+                            ? 0
+                            : 12)
+                        : 12,
                   ),
                 ),
-
-                 */
-                child: child,
-              );
-            },
-          ),
-          chatController: _chatController,
-          currentUserId: _currentUserId,
-          onAttachmentTap: () {
-            // Add a new random image when attachment button is tapped
-            final newMessage = ImageMessage(
-              id: 'img_${DateTime.now().millisecondsSinceEpoch}',
-              authorId: _currentUserId,
-              createdAt: DateTime.now(),
-              source:
-                  'https://picsum.photos/${300 + (DateTime.now().millisecondsSinceEpoch % 200)}/${200 + (DateTime.now().millisecondsSinceEpoch % 300)}',
-              width:
-                  300.0 +
-                  (DateTime.now().millisecondsSinceEpoch % 200).toDouble(),
-              height:
-                  200.0 +
-                  (DateTime.now().millisecondsSinceEpoch % 300).toDouble(),
-              //status: MessageStatus.sending,
-            );
-            _chatController.insertMessage(newMessage);
-
-            // Simulate upload completion after 2 seconds
-            Future.delayed(const Duration(seconds: 2), () {
-              _chatController.updateMessage(
-                newMessage,
-                newMessage.copyWith(status: MessageStatus.sent),
-              );
-            });
-          },
-          onMessageLongPress: (
-            context,
-            message, {
-            required LongPressStartDetails details,
-            required isSentByMe,
-            int? index,
-          }) {
-            showReactionsDialog(
-              context,
-              message,
-              details,
-              isSentByMe: isSentByMe,
-              horizontalMessagePadding: 12,
-              onReactionTap: (_) {},
-              onlyMenu: true,
-              menuItems: [
-                MenuItem(
-                  title: 'Copy',
-                  icon: Icons.copy_outlined,
-                  onTap: () {},
-                ),
-                MenuItem(
-                  title: 'Like',
-                  icon: Icons.favorite_outline,
-                  onTap: () {},
-                ),
-                MenuItem(
-                  title: 'Delete',
-                  icon: Icons.delete_outline,
-                  isDestructive: true,
-                  onTap: () {},
-                ),
-              ],
-              menuItemDividerColor: Colors.grey.shade300,
-              menuItemsWidthRatio: 0.6,
-              menuItemPadding: EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 10,
+                timeAndStatusPosition:
+                    message.text.length > 25
+                        ? TimeAndStatusPosition.end
+                        : TimeAndStatusPosition.end,
+                reserveTimeAndStatusSpace:
+                    message.text.length > 25 ? true : false,
               ),
             );
           },
-          onMessageSend: (text) {
-            // Handle text messages
-            final textMessage = TextMessage(
-              id: 'txt_${DateTime.now().millisecondsSinceEpoch}',
-              authorId: _currentUserId,
-              createdAt: DateTime.now(),
-              text: text,
-              status: MessageStatus.sent,
+          imageMessageBuilder: (
+            BuildContext context,
+            ImageMessage message,
+            int index, {
+            required bool isSentByMe,
+            MessageGroupStatus? groupStatus,
+          }) {
+            return FlyerChatImageMessage(
+              message: message,
+              index: index,
+              customImageProvider: NetworkImage(message.source),
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(12),
+                topRight: const Radius.circular(12),
+                bottomLeft: Radius.circular(
+                  isSentByMe
+                      ? 12
+                      : ((groupStatus?.isLast == true || groupStatus == null)
+                          ? 0
+                          : 12),
+                ),
+                bottomRight: Radius.circular(
+                  isSentByMe
+                      ? ((groupStatus?.isLast == true || groupStatus == null)
+                          ? 0
+                          : 12)
+                      : 12,
+                ),
+              ),
+              constraints: const BoxConstraints(maxHeight: 300, maxWidth: 250),
+              containerPadding: const EdgeInsets.all(3),
+              overlay: Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxHeight: isSentByMe ? 135 : 110,
+                    maxWidth: isSentByMe ? 135 : 110,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topRight,
+                      end: Alignment.bottomRight,
+                      transform: const GradientRotation(20 * (-math.pi / 180)),
+                      colors: [
+                        Colors.transparent,
+                        Colors.transparent,
+                        Colors.black.withOpacity(0.4),
+                        Colors.black.withOpacity(0.6),
+                      ],
+                      stops: const [0.0, 0.75, 0.90, 1.0],
+                    ),
+                  ),
+                  child: Center(child: null),
+                ),
+              ),
+              placeholderColor: Colors.grey[200],
+              loadingOverlayColor: Colors.blue.withOpacity(0.3),
+              loadingIndicatorColor: Colors.blue,
+              uploadOverlayColor: Colors.green.withOpacity(0.3),
+              uploadIndicatorColor: Colors.green,
+              timeStyle: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+              timeBackground: Colors.black.withOpacity(0.7),
+              showTime: true,
+              showStatus: true,
+              timeAndStatusPosition: TimeAndStatusPosition.end,
             );
-            _chatController.insertMessage(textMessage);
           },
-          resolveUser: (UserID id) async {
-            return User(
-              id: id,
-              name: id == 'user1' ? 'You' : 'John Doe',
-              /* avatarUrl:
-                  id == 'user1'
-                      ? 'https://api.dicebear.com/7.x/avataaars/png?seed=user1'
-                      : 'https://api.dicebear.com/7.x/avataaars/png?seed=user2', */
+          videoMessageBuilder: (
+            BuildContext context,
+            VideoMessage message,
+            int index, {
+            required bool isSentByMe,
+            MessageGroupStatus? groupStatus,
+          }) {
+            return FlyerChatVideoMessage(
+              message: message,
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(12),
+                topRight: const Radius.circular(12),
+                bottomLeft: Radius.circular(
+                  isSentByMe
+                      ? 12
+                      : ((groupStatus?.isLast == true || groupStatus == null)
+                          ? 0
+                          : 12),
+                ),
+                bottomRight: Radius.circular(
+                  isSentByMe
+                      ? ((groupStatus?.isLast == true || groupStatus == null)
+                          ? 0
+                          : 12)
+                      : 12,
+                ),
+              ),
+              constraints: const BoxConstraints(maxHeight: 300, maxWidth: 250),
+              containerPadding: const EdgeInsets.all(3),
+              uploadOverlayColor: Colors.green.withOpacity(0.3),
+              uploadIndicatorColor: Colors.green,
+              timeStyle: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+              timeBackground: Colors.black.withOpacity(0.7),
+              showTime: true,
+              showStatus: true,
+              openFullScreenPlayerOnTap: false,
+              timeAndStatusPosition: TimeAndStatusPosition.end,
+              playIconColor: Colors.white,
+              playIconSize: 56,
+              onThumbnailGenerated: (thumbnail) {
+                // Save thumbnail to message metadata to avoid regenerating
+                final updatedMessage = message.copyWith(
+                  metadata: {...?message.metadata, 'thumbnail': thumbnail},
+                );
+                _chatController.updateMessage(message, updatedMessage);
+              },
+            );
+          },
+          composerBuilder: (p0) {
+            return Composer(
+              backgroundColor: Color.fromARGB(223, 247, 247, 247),
+            );
+            /* return SlideTransition(
+              position: _composerSlideAnimation,
+              child: Composer(
+                backgroundColor: Color.fromARGB(223, 247, 247, 247),
+              ),
+            ); */
+          },
+          chatMessageBuilder: (
+            p0,
+            message,
+            index,
+            animation,
+            child, {
+            groupStatus,
+            isRemoved,
+            required isSentByMe,
+          }) {
+            final slideAnimation = _getOrCreateSlideAnimation(message.id);
+            final sizeAnimation = _getOrCreateSizeAnimation(message.id);
+
+            return ChatMessage(
+              message: message,
+              index: index,
+              animation: animation,
+              horizontalPadding: 0,
+              sentMessageRowAlignment: CrossAxisAlignment.center,
+              receivedMessageRowAlignment: CrossAxisAlignment.center,
+              /* headerWidget: Center(
+                child: Container(
+                  margin: EdgeInsets.only(bottom: 8, top: 8),
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        spreadRadius: 1,
+                        blurRadius: 4,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    'Monday, 24th April 2025',
+                    style: TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+      
+               */
+              rightPadding: isSentByMe ? 12 : null,
+              leadingWidget: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!isSentByMe || _isSelectMode) SizedBox(width: 12),
+                  SizeTransition(
+                    sizeFactor: sizeAnimation,
+                    axis: Axis.horizontal,
+                    axisAlignment: -1,
+                    child: SlideTransition(
+                      position: slideAnimation,
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: Icon(
+                          _selectedMessageIds.contains(message.id)
+                              ? Icons.check_circle
+                              : Icons.circle_outlined,
+                          color:
+                              _selectedMessageIds.contains(message.id)
+                                  ? Colors.green
+                                  : Colors.grey,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              isSelectMode: _isSelectMode,
+              child: child,
             );
           },
         ),
-      ),
-      /* floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          _showImageVariations();
+        chatController: _chatController,
+        currentUserId: _currentUserId,
+        onMessageTap: (
+          context,
+          message, {
+          int index = 0,
+          TapUpDetails? details,
+          required bool isSentByMe,
+        }) {
+          // Only handle taps in select mode
+          if (!_isSelectMode) return;
+
+          setState(() {
+            if (_selectedMessageIds.contains(message.id)) {
+              _selectedMessageIds.remove(message.id);
+            } else {
+              _selectedMessageIds.add(message.id);
+            }
+          });
         },
-        label: const Text('Show Variations'),
-        icon: const Icon(Icons.image),
-      ), */
+        onAttachmentTap: () {
+          // Add a new random image when attachment button is tapped
+          final newMessage = ImageMessage(
+            id: 'img_${DateTime.now().millisecondsSinceEpoch}',
+            authorId: _currentUserId,
+            createdAt: DateTime.now(),
+            source:
+                'https://picsum.photos/${300 + (DateTime.now().millisecondsSinceEpoch % 200)}/${200 + (DateTime.now().millisecondsSinceEpoch % 300)}',
+            width:
+                300.0 +
+                (DateTime.now().millisecondsSinceEpoch % 200).toDouble(),
+            height:
+                200.0 +
+                (DateTime.now().millisecondsSinceEpoch % 300).toDouble(),
+            //status: MessageStatus.sending,
+          );
+          _chatController.insertMessage(newMessage);
+
+          // Simulate upload completion after 2 seconds
+          Future.delayed(const Duration(seconds: 2), () {
+            _chatController.updateMessage(
+              newMessage,
+              newMessage.copyWith(status: MessageStatus.sent),
+            );
+          });
+        },
+        onMessageLongPress: (
+          context,
+          message, {
+          required LongPressStartDetails details,
+          required isSentByMe,
+          int? index,
+        }) {
+          showReactionsDialog(
+            context,
+            message,
+            details,
+            isSentByMe: isSentByMe,
+            horizontalMessagePadding: 12,
+            onReactionTap: (_) {},
+            onlyMenu: false,
+            reactions: const ['👍', '❤️', '😂', '🐱', '😢', '🙏'],
+            userReactions: ['🐱'],
+            menuItems: [
+              MenuItem(
+                title: 'Select',
+                icon: Icons.check_circle_outline,
+                onTap: () {
+                  _enterSelectMode();
+                },
+              ),
+              MenuItem(title: 'Copy', icon: Icons.copy_outlined, onTap: () {}),
+              MenuItem(
+                title: 'Like',
+                icon: Icons.favorite_outline,
+                onTap: () {},
+              ),
+              MenuItem(
+                title: 'Delete',
+                icon: Icons.delete_outline,
+                isDestructive: true,
+                onTap: () {},
+              ),
+            ],
+            menuItemDividerColor: Colors.grey.shade300,
+            menuItemsWidthRatio: 0.6,
+            menuItemPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          );
+        },
+        onMessageSend: (text) {
+          // Handle text messages
+          final textMessage = TextMessage(
+            id: 'txt_${DateTime.now().millisecondsSinceEpoch}',
+            authorId: _currentUserId,
+            createdAt: DateTime.now(),
+            text: text,
+            status: MessageStatus.sent,
+          );
+          _chatController.insertMessage(textMessage);
+        },
+        resolveUser: (UserID id) async {
+          return User(
+            id: id,
+            name: id == 'user1' ? 'You' : 'John Doe',
+            /* avatarUrl:
+                id == 'user1'
+                    ? 'https://api.dicebear.com/7.x/avataaars/png?seed=user1'
+                    : 'https://api.dicebear.com/7.x/avataaars/png?seed=user2', */
+          );
+        },
+      ),
+      floatingActionButton:
+          _isSelectMode
+              ? null
+              : FloatingActionButton.extended(
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('Pagination Test'),
+                      content: const Text(
+                        'This example tests both pagination features:\n\n'
+                        '• Scroll UP to the top to trigger onEndReached\n'
+                        '  (loads older messages)\n\n'
+                        '• Scroll DOWN to the bottom to trigger onStartReached\n'
+                        '  (loads newer messages)\n\n'
+                        'Watch the debug console for loading messages!',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Got it!'),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+                label: const Text('How to Test'),
+                icon: const Icon(Icons.info_outline),
+              ),
+      extendBody: _isSelectMode,
+      bottomNavigationBar:
+          _isSelectMode
+              ? ClipRect(
+                child: SlideTransition(
+                  position: _bottomBarSlideAnimation,
+                  child: Container(
+                    color: Colors.grey.shade200,
+                    child: SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text('${_selectedMessageIds.length} Selected'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              )
+              : null,
     );
   }
 
