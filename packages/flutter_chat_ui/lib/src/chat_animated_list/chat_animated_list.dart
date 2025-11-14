@@ -111,6 +111,9 @@ class ChatAnimatedList extends StatefulWidget {
   /// A value of 0.8 means pagination will trigger when scrolled to 80% from the top.
   final double? onStartReachedThreshold;
 
+  /// Callback triggered when the user clicks the scroll-to-bottom button.
+  final VoidCallback? onScrollToBottom;
+
   /// The mode to use for grouping messages.
   final MessagesGroupingMode? messagesGroupingMode;
 
@@ -167,6 +170,7 @@ class ChatAnimatedList extends StatefulWidget {
     this.paginationThreshold = 0.01,
     this.onStartReached,
     this.onStartReachedThreshold = 0.99,
+    this.onScrollToBottom,
     this.messagesGroupingMode,
     this.messageGroupingTimeoutInSeconds,
     this.physics,
@@ -695,6 +699,9 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   }
 
   void _handleScrollToBottom() {
+    // Trigger callback immediately when button is clicked
+    widget.onScrollToBottom?.call();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients || !mounted) return;
 

@@ -69,6 +69,9 @@ class ChatAnimatedListReversed extends StatelessWidget {
   /// Defaults to 0.01.
   final double? onStartReachedThreshold;
 
+  /// Callback triggered when the user clicks the scroll-to-bottom button.
+  final VoidCallback? onScrollToBottom;
+
   /// The mode to use for grouping messages.
   final MessagesGroupingMode? messagesGroupingMode;
 
@@ -106,6 +109,7 @@ class ChatAnimatedListReversed extends StatelessWidget {
     this.paginationThreshold = 0.2,
     this.onStartReached,
     this.onStartReachedThreshold = 0.01,
+    this.onScrollToBottom,
     this.messagesGroupingMode,
     this.messageGroupingTimeoutInSeconds,
     this.physics,
@@ -137,6 +141,7 @@ class ChatAnimatedListReversed extends StatelessWidget {
       paginationThreshold: paginationThreshold,
       onStartReached: onStartReached,
       onStartReachedThreshold: onStartReachedThreshold,
+      onScrollToBottom: onScrollToBottom,
       messageGroupingTimeoutInSeconds: messageGroupingTimeoutInSeconds,
       physics: physics,
     );
