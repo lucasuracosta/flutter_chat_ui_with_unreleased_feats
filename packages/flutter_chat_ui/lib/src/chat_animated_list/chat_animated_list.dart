@@ -103,6 +103,14 @@ class ChatAnimatedList extends StatefulWidget {
   /// A value of 0.2 means pagination will trigger when scrolled to 20% from the top.
   final double? paginationThreshold;
 
+  /// Callback triggered when the user scrolls near the bottom, requesting newer messages.
+  final PaginationCallback? onStartReached;
+
+  /// Threshold for triggering start pagination, represented as a value between 0 and 1.
+  /// 0 represents the top of the list, while 1 represents the bottom.
+  /// A value of 0.8 means pagination will trigger when scrolled to 80% from the top.
+  final double? onStartReachedThreshold;
+
   /// The mode to use for grouping messages.
   final MessagesGroupingMode? messagesGroupingMode;
 
@@ -157,6 +165,8 @@ class ChatAnimatedList extends StatefulWidget {
     // Modify this value at your own risk. If you increase it and experience
     // unstable pagination jumps, revert to a smaller value like 0.01.
     this.paginationThreshold = 0.01,
+    this.onStartReached,
+    this.onStartReachedThreshold = 0.99,
     this.messagesGroupingMode,
     this.messageGroupingTimeoutInSeconds,
     this.physics,
@@ -198,6 +208,12 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   // This prevents infinite pagination loops when reaching the end of available messages,
   // ensuring onEndReached only fires once per user scroll gesture.
   bool _paginationShouldTrigger = false;
+
+  // Controls whether start pagination should be triggered when scrolling to the bottom.
+  // Set to true when user scrolls down, and false after start pagination is triggered.
+  // This prevents infinite pagination loops when reaching the start of available messages,
+  // ensuring onStartReached only fires once per user scroll gesture.
+  bool _startPaginationShouldTrigger = false;
 
   @override
   void initState() {
@@ -373,6 +389,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
           // Visually at the bottom (first in sliver list for reverse: true)
           _buildComposerHeightSliver(context),
           if (widget.bottomSliver != null) widget.bottomSliver!,
+          if (widget.onStartReached != null) _buildLoadMoreStartSliver(builders),
           sliverAnimatedList,
           if (widget.onEndReached != null) _buildLoadMoreSliver(builders),
           if (widget.topSliver != null) widget.topSliver!,
@@ -389,6 +406,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
           if (widget.topSliver != null) widget.topSliver!,
           if (widget.onEndReached != null) _buildLoadMoreSliver(builders),
           sliverAnimatedList,
+          if (widget.onStartReached != null) _buildLoadMoreStartSliver(builders),
           if (widget.bottomSliver != null) widget.bottomSliver!,
           _buildComposerHeightSliver(context),
           // Visually at the bottom
@@ -403,10 +421,11 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
           _adjustInitialScrollPosition();
           _handleToggleScrollToBottom();
           _handlePagination();
+          _handleStartPagination();
         }
 
         if (notification is UserScrollNotification) {
-          // When user scrolls up, save it to `_userHasScrolled`
+          // When user scrolls up (toward older messages), enable end pagination
           if (notification.direction ==
               (widget.reversed
                   ? ScrollDirection.reverse
@@ -414,7 +433,14 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
             _paginationShouldTrigger = true;
             _userHasScrolled = true;
           } else {
-            // When user overscolls to the bottom or stays idle at the bottom, set `_userHasScrolled` to false
+            // When user scrolls down (toward newer messages), enable start pagination
+            if (notification.direction ==
+                (widget.reversed
+                    ? ScrollDirection.forward
+                    : ScrollDirection.reverse)) {
+              _startPaginationShouldTrigger = true;
+            }
+            // When user overscrolls to the bottom or stays idle at the bottom, set `_userHasScrolled` to false
             if (_isAtChatEndScrollPosition) {
               _userHasScrolled = false;
             }
@@ -493,6 +519,21 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
           );
         },
         child: builders.loadMoreBuilder?.call(context) ?? LoadMore(),
+      ),
+    );
+  }
+
+  Widget _buildLoadMoreStartSliver(Builders builders) {
+    return SliverToBoxAdapter(
+      child: Consumer<LoadMoreNotifier>(
+        builder: (context, notifier, child) {
+          return Visibility(
+            visible: notifier.isLoadingStart,
+            maintainState: true,
+            child: child!,
+          );
+        },
+        child: builders.loadMoreBuilder?.call(context) ?? LoadMore(isStart: true),
       ),
     );
   }
@@ -824,6 +865,123 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
 
         // Hide loading indicator.
         notifier.setLoading(false);
+      });
+    }
+  }
+
+  void _handleStartPagination() async {
+    if (!_scrollController.hasClients ||
+        !mounted ||
+        _needsInitialScrollPositionAdjustment ||
+        widget.onStartReached == null ||
+        context.read<LoadMoreNotifier>().isLoadingStart ||
+        !_startPaginationShouldTrigger) {
+      return;
+    }
+
+    // Get the threshold for start pagination, defaulting to the very bottom of the list
+    var threshold = (widget.onStartReachedThreshold ?? 0.99);
+    if (widget.reversed) {
+      threshold = 1 - threshold;
+    }
+
+    // Calculate the user's scroll position as a percentage of the total scrollable area, ranging from 0 to 1.
+    // In a standard list, 0 represents the topmost position and 1 represents the bottommost position.
+    // In a reversed list, the values are inverted: 1 indicates the top and 0 indicates the bottom.
+    final scrollPercentage =
+        _scrollController.position.maxScrollExtent == 0
+            ? 0
+            : _scrollController.offset /
+                _scrollController.position.maxScrollExtent;
+
+    final shouldTrigger =
+        widget.reversed
+            ? scrollPercentage <= threshold
+            : scrollPercentage >= threshold;
+
+    // Trigger start pagination if user scrolled past the threshold towards the bottom.
+    if (shouldTrigger) {
+      // Prevent multiple triggers during one scroll gesture.
+      _startPaginationShouldTrigger = false;
+
+      // Store the ID of the bottommost visible item before loading new messages.
+      // This item will be used as an anchor to maintain scroll position.
+      MessageID? anchorMessageId;
+      int? initialMessagesCount;
+
+      // --- Scroll Anchoring Setup: Only for reversed lists ---
+      if (widget.reversed) {
+        try {
+          // We can only anchor the scroll position if the list is actually
+          // in the widget tree and has a context.
+          if (_listKey.currentContext != null) {
+            final notificationResult = await _observerController
+                .dispatchOnceObserve(
+                  sliverContext: _listKey.currentContext!,
+                  isForce: true,
+                  isDependObserveCallback: false,
+                );
+            final lastItem =
+                notificationResult
+                    .observeResult
+                    ?.innerDisplayingChildModelList
+                    .lastOrNull;
+            final anchorIndex = lastItem?.index;
+
+            if (anchorIndex != null &&
+                anchorIndex >= 0 &&
+                anchorIndex < _oldList.length) {
+              anchorMessageId = _oldList[anchorIndex].id;
+            }
+          }
+        } catch (e) {
+          debugPrint('Error observing scroll position for start anchoring: $e');
+        }
+        if (!mounted) return;
+        initialMessagesCount = _oldList.length;
+      }
+      // --- End Scroll Anchoring Setup ---
+
+      // Ensure mounted before using context or calling async widget callbacks
+      if (!mounted) return;
+
+      // Show loading indicator.
+      context.read<LoadMoreNotifier>().setLoadingStart(true);
+
+      // Load newer messages.
+      await widget.onStartReached!();
+
+      // Ensure mounted after await, as onStartReached might unmount the widget
+      if (!mounted) return;
+
+      // Wait for the next frame for UI updates.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_scrollController.hasClients || !mounted) return;
+
+        final notifier = context.read<LoadMoreNotifier>();
+
+        // --- Scroll Anchoring Action: Only for reversed lists ---
+        if (widget.reversed) {
+          // initialMessageCount will be non-null here if widget.reversed
+          final didAddMessages = _oldList.length > initialMessagesCount!;
+          if (didAddMessages && anchorMessageId != null) {
+            final newIndex = _oldList.indexWhere(
+              (m) => m.id == anchorMessageId,
+            );
+            if (newIndex != -1) {
+              _scrollToIndex(
+                newIndex,
+                duration: Duration.zero, // Jump immediately
+                alignment: 1, // Align to the bottom edge
+                offset: 0, // Keep item bottom edge aligned with viewport bottom edge
+              );
+            }
+          }
+        }
+        // --- End Scroll Anchoring Action ---
+
+        // Hide loading indicator.
+        notifier.setLoadingStart(false);
       });
     }
   }

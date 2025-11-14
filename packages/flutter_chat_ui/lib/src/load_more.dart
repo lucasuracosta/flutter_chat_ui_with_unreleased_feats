@@ -18,8 +18,18 @@ class LoadMore extends StatefulWidget {
   /// Size (diameter) of the progress indicator.
   final double? size;
 
+  /// Whether this is a start pagination indicator (shown at bottom).
+  /// When false, this is an end pagination indicator (shown at top).
+  final bool isStart;
+
   /// Creates a load more indicator widget.
-  const LoadMore({super.key, this.color, this.padding = 20, this.size = 20});
+  const LoadMore({
+    super.key,
+    this.color,
+    this.padding = 20,
+    this.size = 20,
+    this.isStart = false,
+  });
 
   @override
   State<LoadMore> createState() => _LoadMoreState();
@@ -62,7 +72,12 @@ class _LoadMoreState extends State<LoadMore> {
     final renderBox = _key.currentContext?.findRenderObject() as RenderBox?;
     if (renderBox != null) {
       final height = renderBox.size.height;
-      context.read<LoadMoreNotifier>().setHeight(height);
+      final notifier = context.read<LoadMoreNotifier>();
+      if (widget.isStart) {
+        notifier.setHeightStart(height);
+      } else {
+        notifier.setHeight(height);
+      }
     }
   }
 }
