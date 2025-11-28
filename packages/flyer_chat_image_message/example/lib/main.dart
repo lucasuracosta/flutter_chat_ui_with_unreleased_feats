@@ -51,6 +51,14 @@ class _ImageMessageExampleState extends State<ImageMessageExample>
   // Sample hardcoded text messages
   final List<TextMessage> _sampleTextMessages = [
     TextMessage(
+      id: 'txt0',
+      authorId: 'user1',
+      createdAt: DateTime.now().subtract(const Duration(minutes: 11)),
+      metadata: {'is_edited': true},
+      text: 'Hello!',
+      status: MessageStatus.seen,
+    ),
+    TextMessage(
       id: 'txt1',
       authorId: 'user2',
       createdAt: DateTime.now().subtract(const Duration(minutes: 10)),
@@ -60,6 +68,7 @@ class _ImageMessageExampleState extends State<ImageMessageExample>
       id: 'txt2',
       authorId: 'user1',
       createdAt: DateTime.now().subtract(const Duration(minutes: 9)),
+      metadata: {'is_edited': true},
       text: 'I\'m doing great! Thanks for asking 😊',
       status: MessageStatus.seen,
     ),
@@ -67,7 +76,9 @@ class _ImageMessageExampleState extends State<ImageMessageExample>
       id: 'txt3',
       authorId: 'user2',
       createdAt: DateTime.now().subtract(const Duration(minutes: 8)),
-      text: 'That\'s awesome! I wanted to share some cool images with you.',
+      metadata: {'is_edited': true},
+      text:
+          'That\'s awesome! I wanted to share some cool images with you. (I edited this message)',
     ),
     TextMessage(
       id: 'txt4',
@@ -80,6 +91,7 @@ class _ImageMessageExampleState extends State<ImageMessageExample>
       id: 'txt5',
       authorId: 'user2',
       createdAt: DateTime.now().subtract(const Duration(minutes: 6)),
+      metadata: {'is_edited': true},
       text: 'Here they are! Let me know what you think:',
     ),
   ];
@@ -183,7 +195,8 @@ class _ImageMessageExampleState extends State<ImageMessageExample>
       id: 'txt6',
       authorId: 'user1',
       createdAt: DateTime.now().add(const Duration(minutes: 1)),
-      text: 'Wow! These are absolutely beautiful! 📸',
+      metadata: {'is_edited': true},
+      text: 'Wow! These are absolutely beautiful! 📸 (edited)',
       status: MessageStatus.sent,
     ),
     TextMessage(
@@ -196,6 +209,7 @@ class _ImageMessageExampleState extends State<ImageMessageExample>
       id: 'txt8',
       authorId: 'user1',
       createdAt: DateTime.now().add(const Duration(minutes: 3)),
+      metadata: {'is_edited': true},
       text: 'Where did you go? The scenery looks amazing! 🌄',
     ),
     TextMessage(
@@ -215,7 +229,9 @@ class _ImageMessageExampleState extends State<ImageMessageExample>
       id: 'txt11',
       authorId: 'user1',
       createdAt: DateTime.now().add(const Duration(minutes: 9)),
-      text: 'Amazing videos! The scenery is breathtaking! 🎥',
+      metadata: {'is_edited': true},
+      text:
+          'Amazing videos! The scenery is breathtaking! 🎥 (this was edited too)',
       status: MessageStatus.sent,
     ),
   ];
@@ -300,21 +316,18 @@ class _ImageMessageExampleState extends State<ImageMessageExample>
     _olderMessagesPage++;
 
     // Generate older messages
-    final olderMessages = List.generate(
-      _messagesPerPage,
-      (index) {
-        final messageNumber = _olderMessagesPage * _messagesPerPage + index;
-        return TextMessage(
-          id: 'older_txt_$messageNumber',
-          authorId: messageNumber % 2 == 0 ? 'user2' : 'user1',
-          createdAt: DateTime.now().subtract(
-            Duration(minutes: 100 + messageNumber),
-          ),
-          text: 'This is older message #$messageNumber loaded via onEndReached',
-          status: MessageStatus.delivered,
-        );
-      },
-    );
+    final olderMessages = List.generate(_messagesPerPage, (index) {
+      final messageNumber = _olderMessagesPage * _messagesPerPage + index;
+      return TextMessage(
+        id: 'older_txt_$messageNumber',
+        authorId: messageNumber % 2 == 0 ? 'user2' : 'user1',
+        createdAt: DateTime.now().subtract(
+          Duration(minutes: 100 + messageNumber),
+        ),
+        text: 'This is older message #$messageNumber loaded via onEndReached',
+        status: MessageStatus.delivered,
+      );
+    });
 
     // Add older messages to the chat
     for (final message in olderMessages) {
@@ -335,21 +348,16 @@ class _ImageMessageExampleState extends State<ImageMessageExample>
     _newerMessagesPage++;
 
     // Generate newer messages
-    final newerMessages = List.generate(
-      _messagesPerPage,
-      (index) {
-        final messageNumber = _newerMessagesPage * _messagesPerPage + index;
-        return TextMessage(
-          id: 'newer_txt_$messageNumber',
-          authorId: messageNumber % 2 == 0 ? 'user1' : 'user2',
-          createdAt: DateTime.now().add(
-            Duration(minutes: 100 + messageNumber),
-          ),
-          text: 'This is newer message #$messageNumber loaded via onStartReached',
-          status: MessageStatus.sent,
-        );
-      },
-    );
+    final newerMessages = List.generate(_messagesPerPage, (index) {
+      final messageNumber = _newerMessagesPage * _messagesPerPage + index;
+      return TextMessage(
+        id: 'newer_txt_$messageNumber',
+        authorId: messageNumber % 2 == 0 ? 'user1' : 'user2',
+        createdAt: DateTime.now().add(Duration(minutes: 100 + messageNumber)),
+        text: 'This is newer message #$messageNumber loaded via onStartReached',
+        status: MessageStatus.sent,
+      );
+    });
 
     // Add newer messages to the chat
     for (final message in newerMessages) {
@@ -498,31 +506,34 @@ class _ImageMessageExampleState extends State<ImageMessageExample>
                 message: message,
                 index: index,
                 textPadding: const EdgeInsets.only(left: 4, right: 6),
-                containerPadding: EdgeInsets.fromLTRB(3.5, 3.5, 3.5, 8),
-                topWidgets: [
-                  Container(
-                    constraints: BoxConstraints(
-                      maxWidth: MediaQuery.of(context).size.width * 0.3,
-                    ),
-                    margin: const EdgeInsets.only(bottom: 4),
-                    height: 50,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      border: Border(
-                        left: BorderSide(color: Colors.grey, width: 4),
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.max,
-                      children: [
-                        Text('Fake reply'),
-                        Spacer(),
-                        Icon(Icons.image),
-                      ],
-                    ),
-                  ),
-                ],
+                containerPadding: EdgeInsets.fromLTRB(6, 6, 6, 10),
+                topWidgets:
+                    true
+                        ? null
+                        : [
+                          Container(
+                            constraints: BoxConstraints(
+                              maxWidth: MediaQuery.of(context).size.width * 0.3,
+                            ),
+                            margin: const EdgeInsets.only(bottom: 4),
+                            height: 50,
+                            decoration: BoxDecoration(
+                              color: Colors.grey[300],
+                              border: Border(
+                                left: BorderSide(color: Colors.grey, width: 4),
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.max,
+                              children: [
+                                Text('Fake reply'),
+                                Spacer(),
+                                Icon(Icons.image),
+                              ],
+                            ),
+                          ),
+                        ],
                 constraints: BoxConstraints(
                   maxWidth: MediaQuery.of(context).size.width * 0.75,
                 ),
@@ -888,35 +899,6 @@ class _ImageMessageExampleState extends State<ImageMessageExample>
           );
         },
       ),
-      floatingActionButton:
-          _isSelectMode
-              ? null
-              : FloatingActionButton.extended(
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (context) => AlertDialog(
-                      title: const Text('Pagination Test'),
-                      content: const Text(
-                        'This example tests both pagination features:\n\n'
-                        '• Scroll UP to the top to trigger onEndReached\n'
-                        '  (loads older messages)\n\n'
-                        '• Scroll DOWN to the bottom to trigger onStartReached\n'
-                        '  (loads newer messages)\n\n'
-                        'Watch the debug console for loading messages!',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text('Got it!'),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-                label: const Text('How to Test'),
-                icon: const Icon(Icons.info_outline),
-              ),
       extendBody: _isSelectMode,
       bottomNavigationBar:
           _isSelectMode

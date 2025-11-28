@@ -165,6 +165,7 @@ class FlyerChatTextMessage extends StatelessWidget {
               textStyle: timeStyle,
               statusIconColor: statusIconColor,
               statusIconSize: statusIconSize,
+              isEdited: message.metadata?['is_edited'] == true,
             )
             : null;
 
@@ -228,6 +229,69 @@ class FlyerChatTextMessage extends StatelessWidget {
             ? linkPreviewPosition
             : LinkPreviewPosition.none;
 
+    // Build invisible placeholder text that matches the time/status format.
+    // This text is appended to the message and styled as invisible, allowing
+    // the time to sit on the same line if there's space, or wrap naturally.
+    String buildInvisiblePlaceholderText() {
+      final timeFormat = context.read<DateFormat>();
+      final buffer = StringBuffer('  ');
+
+      final isEdited = message.metadata?['is_edited'] == true;
+      if (isEdited) {
+        buffer.write('Edited ');
+      }
+
+      if (showTime && message.resolvedTime != null) {
+        buffer.write(timeFormat.format(message.resolvedTime!.toLocal()));
+      }
+
+      final isSentByMe = context.read<UserID>() == message.authorId;
+      if (isSentByMe && showStatus && message.resolvedStatus != null) {
+        buffer.write(' ✅');
+      }
+
+      return buffer.toString();
+    }
+
+    // Build text with inline invisible placeholder for time/status (WhatsApp-like behavior).
+    // The invisible placeholder flows with the text as continuous content, allowing proper
+    // line breaking. We use Text.rich to append an invisible placeholder that reserves
+    // space for the time/status overlay.
+    Widget buildTextWithInlinePlaceholder() {
+      if (timeAndStatus == null ||
+          timeAndStatusPosition ==
+              TimeAndStatusPosition
+                  .inline /*  ||
+          !reserveTimeAndStatusSpace */ ) {
+        return textContent;
+      }
+
+      final placeholderText = buildInvisiblePlaceholderText();
+
+      // For simple text without markdown, use Text.rich for proper inline flow
+      // This ensures the invisible placeholder is part of the same text flow
+      return Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: message.text,
+              style:
+                  _isOnlyEmoji
+                      ? paragraphStyle?.copyWith(fontSize: onlyEmojiFontSize)
+                      : paragraphStyle,
+            ),
+            TextSpan(
+              text: placeholderText,
+              // Use the time/status text style to occupy the same space
+              style: (timeAndStatus.textStyle ?? const TextStyle()).copyWith(
+                color: Colors.transparent,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Stack(
       children: [
         Column(
@@ -256,16 +320,11 @@ class FlyerChatTextMessage extends StatelessWidget {
                           ),
                         ],
                       )
-                      : textContent,
+                      : buildTextWithInlinePlaceholder(),
             ),
 
             if (effectiveLinkPreviewPosition == LinkPreviewPosition.bottom)
               linkPreviewWidget!,
-            if (timeAndStatusPosition != TimeAndStatusPosition.inline &&
-                reserveTimeAndStatusSpace)
-              // Ensure the  width is not smaller than the timeAndStatus widget
-              // Ensure the height accounts for it's height
-              Opacity(opacity: 0, child: timeAndStatus),
           ],
         ),
         if (timeAndStatusPosition != TimeAndStatusPosition.inline &&
@@ -338,6 +397,9 @@ class TimeAndStatus extends StatelessWidget {
   /// Color of the status icon.
   final Color? statusIconColor;
 
+  /// Whether the message has been edited.
+  final bool isEdited;
+
   /// Creates a widget for displaying time and status.
   const TimeAndStatus({
     super.key,
@@ -348,6 +410,7 @@ class TimeAndStatus extends StatelessWidget {
     this.textStyle,
     this.statusIconSize,
     this.statusIconColor,
+    this.isEdited = false,
   });
 
   @override
@@ -358,6 +421,11 @@ class TimeAndStatus extends StatelessWidget {
       spacing: 2,
       mainAxisSize: MainAxisSize.min,
       children: [
+        if (isEdited)
+          Padding(
+            padding: const EdgeInsets.only(right: 2),
+            child: Text('Edited', style: textStyle),
+          ),
         if (showTime && time != null)
           Text(timeFormat.format(time!.toLocal()), style: textStyle),
         if (showStatus && status != null)
