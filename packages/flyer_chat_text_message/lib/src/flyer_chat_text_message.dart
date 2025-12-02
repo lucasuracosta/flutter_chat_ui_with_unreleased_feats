@@ -296,7 +296,7 @@ class FlyerChatTextMessage extends StatelessWidget {
       children: [
         Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (topWidgets != null) ...topWidgets!,
             if (effectiveLinkPreviewPosition == LinkPreviewPosition.top)
