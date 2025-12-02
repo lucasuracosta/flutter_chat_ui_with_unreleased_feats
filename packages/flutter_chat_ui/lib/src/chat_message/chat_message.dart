@@ -99,6 +99,9 @@ class ChatMessage extends StatelessWidget {
   /// Flag indicating if this message is currently selected.
   final bool isSelectMode;
 
+  /// Height of the spacing below the message content to accommodate the reactions widget.
+  final double reactionsSpacingHeight;
+
   /// Creates a default chat message wrapper widget.
   const ChatMessage({
     super.key,
@@ -131,6 +134,7 @@ class ChatMessage extends StatelessWidget {
     this.verticalPadding = 12,
     this.verticalGroupedPadding = 2,
     this.isSelectMode = false,
+    this.reactionsSpacingHeight = 16,
   });
 
   @override
@@ -263,7 +267,12 @@ class ChatMessage extends StatelessWidget {
                           // TODO Find better way to add height for the reactions widget
                           // TODO: maybe we could set a width to allow at least some space for the reactions widget
                           // We message is really short ?
-                          Column(children: [child, SizedBox(height: 16)]),
+                          Column(
+                            children: [
+                              child,
+                              SizedBox(height: reactionsSpacingHeight),
+                            ],
+                          ),
                           Positioned(
                             bottom: 0,
                             left: 8,
