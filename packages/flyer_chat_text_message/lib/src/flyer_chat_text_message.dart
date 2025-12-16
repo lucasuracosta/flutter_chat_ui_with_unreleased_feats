@@ -184,7 +184,7 @@ class FlyerChatTextMessage extends StatelessWidget {
       ),
     );
 
-    final linkPreviewWidget =
+    final Widget? linkPreviewWidget =
         linkPreviewPosition != LinkPreviewPosition.none
             ? context.read<Builders>().linkPreviewBuilder?.call(
               context,
@@ -193,26 +193,31 @@ class FlyerChatTextMessage extends StatelessWidget {
             )
             : null;
 
+    final containerChild = Container(
+      constraints: constraints,
+      padding: containerPadding,
+      decoration: _isOnlyEmoji ? null : BoxDecoration(color: backgroundColor),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          _buildContentBasedOnPosition(
+            context: context,
+            textContent: textContent,
+            timeAndStatus: timeAndStatus,
+            paragraphStyle: paragraphStyle,
+            linkPreviewWidget: linkPreviewWidget,
+          ),
+        ],
+      ),
+    );
+
     return ClipRRect(
       borderRadius: borderRadius ?? theme.shape,
-      child: Container(
-        constraints: constraints,
-        padding: containerPadding,
-        decoration: _isOnlyEmoji ? null : BoxDecoration(color: backgroundColor),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildContentBasedOnPosition(
-              context: context,
-              textContent: textContent,
-              timeAndStatus: timeAndStatus,
-              paragraphStyle: paragraphStyle,
-              linkPreviewWidget: linkPreviewWidget,
-            ),
-          ],
-        ),
-      ),
+      child:
+          topWidgets != null && topWidgets!.isNotEmpty
+              ? IntrinsicWidth(child: containerChild)
+              : containerChild,
     );
   }
 
@@ -272,7 +277,7 @@ class FlyerChatTextMessage extends StatelessWidget {
       // This ensures the invisible placeholder is part of the same text flow
       return Text.rich(
         TextSpan(
-          children: [
+          children: <InlineSpan>[
             TextSpan(
               text: message.text,
               style:
@@ -293,7 +298,7 @@ class FlyerChatTextMessage extends StatelessWidget {
     }
 
     return Stack(
-      children: [
+      children: <Widget>[
         Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -309,9 +314,9 @@ class FlyerChatTextMessage extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment:
                             timeAndStatusPositionInlineAlignment,
-                        children: [
+                        children: <Widget>[
                           Flexible(child: textContent),
-                          SizedBox(width: 4),
+                          const SizedBox(width: 4),
                           Padding(
                             padding:
                                 timeAndStatusPositionInlineInsets ??
@@ -322,7 +327,6 @@ class FlyerChatTextMessage extends StatelessWidget {
                       )
                       : buildTextWithInlinePlaceholder(),
             ),
-
             if (effectiveLinkPreviewPosition == LinkPreviewPosition.bottom)
               linkPreviewWidget!,
           ],
@@ -338,8 +342,8 @@ class FlyerChatTextMessage extends StatelessWidget {
             child: Padding(
               // This clamp removes the top and bottom padding
               padding: textPadding.clamp(
-                EdgeInsetsGeometry.all(0),
-                EdgeInsetsGeometry.fromLTRB(30, 0, 30, 0),
+                const EdgeInsetsGeometry.all(0),
+                const EdgeInsetsGeometry.fromLTRB(30, 0, 30, 0),
               ),
               child: timeAndStatus,
             ),
@@ -420,7 +424,7 @@ class TimeAndStatus extends StatelessWidget {
     return Row(
       spacing: 2,
       mainAxisSize: MainAxisSize.min,
-      children: [
+      children: <Widget>[
         if (isEdited)
           Padding(
             padding: const EdgeInsets.only(right: 2),
