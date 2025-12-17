@@ -145,10 +145,17 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
   final GlobalKey _menuItemsKey = GlobalKey();
   double _reactionsPickerHeight = 0;
   double _menuItemsHeight = 0;
+  bool _useFloatingMenu = false;
+  final ScrollController _scrollController = ScrollController();
+  bool _isScrolledToTop = true;
 
   @override
   void initState() {
     super.initState();
+
+    // Add scroll listener for floating menu scenario
+    _scrollController.addListener(_onScroll);
+
     // Calculate reactions picker and menu items height after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _calculateHeights();
@@ -171,6 +178,23 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
         });
       }
     });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    // Check if we're at the top (with a small threshold)
+    final isAtTop = _scrollController.offset <= 5.0;
+
+    if (isAtTop != _isScrolledToTop) {
+      setState(() {
+        _isScrolledToTop = isAtTop;
+      });
+    }
   }
 
   void _calculateHeights() {
@@ -214,24 +238,48 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
 
     // Calculate top position ensuring it's not below 0 and accounts for SafeArea
     late double calculatedTop;
-    final desiredTop = widget.messageOffset.dy /* - _reactionsPickerHeight */;
+    final desiredTop = widget.messageOffset.dy;
 
-    // Calculate total height needed
+    // Calculate total height needed for message + menu
     final totalHeight =
-        /* _reactionsPickerHeight + */
         (widget.messageSize.height ?? 0) +
-        ((widget.menuItems?.length ?? 0) * 40);
+        _menuItemsHeight;
 
-    // Ensure the bottom doesn't exceed available screen height
-    if ((desiredTop + totalHeight) > (screenHeight - safeAreaBottom)) {
-      // Adjust top to fit within screen, accounting for SafeArea
-      // (which is already excluded from screenHeight)
+    // Calculate the top position of the reactions picker
+    // The reactions picker is positioned above the message
+    final reactionsPickerTop = desiredTop - _reactionsPickerHeight - 10; // 10 is the bottom padding
+
+    // Check if we need to adjust for bottom safe area
+    final needsBottomAdjustment =
+        (desiredTop + totalHeight) > (screenHeight - safeAreaBottom);
+
+    // Check if we need to adjust for top safe area (reactions picker going above)
+    final needsTopAdjustment =
+        !widget.onlyMenu && reactionsPickerTop < safeAreaTop;
+
+    // Determine if we need both adjustments (message is too large to fit)
+    final needsBothAdjustments = needsTopAdjustment && needsBottomAdjustment;
+
+    if (needsBothAdjustments) {
+      // Message is too large - position to keep reactions picker below top safe area
+      // and float the menu at the bottom
+      calculatedTop = safeAreaTop + _reactionsPickerHeight + 10; // 10 is the bottom padding
+      _useFloatingMenu = true;
+    } else if (needsBottomAdjustment) {
+      // Adjust top to fit within screen bottom, accounting for SafeArea
       calculatedTop = math.max(
         safeAreaTop,
         screenHeight - safeAreaBottom - totalHeight,
       );
+      _useFloatingMenu = false;
+    } else if (needsTopAdjustment) {
+      // Adjust top to ensure reactions picker is below top safe area
+      // Move the message down so the reactions picker sits at safeAreaTop
+      calculatedTop = safeAreaTop + _reactionsPickerHeight + 10; // 10 is the bottom padding
+      _useFloatingMenu = false;
     } else {
-      calculatedTop = math.max(safeAreaTop, desiredTop);
+      calculatedTop = desiredTop;
+      _useFloatingMenu = false;
     }
 
     return PopScope(
@@ -248,37 +296,67 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
         child: SizedBox.expand(
           child: Stack(
             children: [
+              // Message (and menu if not floating)
               Positioned.directional(
                 textDirection:
                     widget.isSentByMe ? TextDirection.rtl : TextDirection.ltr,
                 start: widget.horizontalMessagePadding,
                 top: calculatedTop,
+                bottom: _useFloatingMenu ? 0 : null,
                 width: widget.messageSize.width,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  children: [
-                    buildMessage(),
-                    AnimatedScale(
-                      key: _menuItemsKey,
-                      scale: _showPickerAndMenu ? 1.0 : 0.5,
-                      duration: const Duration(milliseconds: 150),
-                      alignment:
-                          widget.isSentByMe
-                              ? Alignment.topRight
-                              : Alignment.topLeft,
-                      child: AnimatedOpacity(
-                        opacity: _showPickerAndMenu ? 1.0 : 0.0,
-                        duration: const Duration(milliseconds: 150),
-                        child: Padding(
-                          padding: const EdgeInsets.only(top: 10),
-                          child: buildMenuItems(context, theme),
-                        ),
+                child: _useFloatingMenu
+                    ? SingleChildScrollView(
+                        controller: _scrollController,
+                        child: buildMessage(),
+                      )
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        children: [
+                          buildMessage(),
+                          AnimatedScale(
+                            key: _menuItemsKey,
+                            scale: _showPickerAndMenu ? 1.0 : 0.5,
+                            duration: const Duration(milliseconds: 150),
+                            alignment:
+                                widget.isSentByMe
+                                    ? Alignment.topRight
+                                    : Alignment.topLeft,
+                            child: AnimatedOpacity(
+                              opacity: _showPickerAndMenu ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 150),
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 10),
+                                child: buildMenuItems(context, theme),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
               ),
+              // Floating menu at bottom when message is too large
+              if (_useFloatingMenu)
+                Positioned.directional(
+                  textDirection:
+                      widget.isSentByMe ? TextDirection.rtl : TextDirection.ltr,
+                  start: widget.horizontalMessagePadding,
+                  bottom: safeAreaBottom,
+                  width: widget.messageSize.width,
+                  child: AnimatedScale(
+                    key: _menuItemsKey,
+                    scale: _showPickerAndMenu && _isScrolledToTop ? 1.0 : 0.5,
+                    duration: const Duration(milliseconds: 150),
+                    alignment:
+                        widget.isSentByMe
+                            ? Alignment.topRight
+                            : Alignment.topLeft,
+                    child: AnimatedOpacity(
+                      opacity: _showPickerAndMenu && _isScrolledToTop ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 150),
+                      child: buildMenuItems(context, theme),
+                    ),
+                  ),
+                ),
               // Reactions are in a separate positioned widget so that we can
               // use the message offset for the message itself and then set
               // the reactions above it avoiding calculations to compensate for the reactions
@@ -291,7 +369,7 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
                   width: widget.messageSize.width,
                   child: AnimatedOpacity(
                     key: _reactionsPickerKey,
-                    opacity: _showPickerAndMenu ? 1.0 : 0.0,
+                    opacity: _showPickerAndMenu && (!_useFloatingMenu || _isScrolledToTop) ? 1.0 : 0.0,
                     duration: const Duration(milliseconds: 150),
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: 10),
