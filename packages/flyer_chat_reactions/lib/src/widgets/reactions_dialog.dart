@@ -148,6 +148,7 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
   bool _useFloatingMenu = false;
   final ScrollController _scrollController = ScrollController();
   bool _isScrolledToTop = true;
+  double _topPadding = 0;
 
   @override
   void initState() {
@@ -241,13 +242,12 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
     final desiredTop = widget.messageOffset.dy;
 
     // Calculate total height needed for message + menu
-    final totalHeight =
-        (widget.messageSize.height ?? 0) +
-        _menuItemsHeight;
+    final totalHeight = (widget.messageSize.height ?? 0) + _menuItemsHeight;
 
     // Calculate the top position of the reactions picker
     // The reactions picker is positioned above the message
-    final reactionsPickerTop = desiredTop - _reactionsPickerHeight - 10; // 10 is the bottom padding
+    final reactionsPickerTop =
+        desiredTop - _reactionsPickerHeight - 10; // 10 is the bottom padding
 
     // Check if we need to adjust for bottom safe area
     final needsBottomAdjustment =
@@ -263,8 +263,10 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
     if (needsBothAdjustments) {
       // Message is too large - position to keep reactions picker below top safe area
       // and float the menu at the bottom
-      calculatedTop = safeAreaTop + _reactionsPickerHeight + 10; // 10 is the bottom padding
+      calculatedTop =
+          safeAreaTop + _reactionsPickerHeight + 10; // 10 is the bottom padding
       _useFloatingMenu = true;
+      _topPadding = calculatedTop; // Store for scroll padding
     } else if (needsBottomAdjustment) {
       // Adjust top to fit within screen bottom, accounting for SafeArea
       calculatedTop = math.max(
@@ -275,7 +277,8 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
     } else if (needsTopAdjustment) {
       // Adjust top to ensure reactions picker is below top safe area
       // Move the message down so the reactions picker sits at safeAreaTop
-      calculatedTop = safeAreaTop + _reactionsPickerHeight + 10; // 10 is the bottom padding
+      calculatedTop =
+          safeAreaTop + _reactionsPickerHeight + 10; // 10 is the bottom padding
       _useFloatingMenu = false;
     } else {
       calculatedTop = desiredTop;
@@ -296,43 +299,96 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
         child: SizedBox.expand(
           child: Stack(
             children: [
+              // Background tap area to dismiss dialog
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    _hidePickerAndMenuBeforePop();
+                    if (context.mounted) {
+                      Navigator.of(context).pop();
+                    }
+                  },
+                  child: Container(color: Colors.transparent),
+                ),
+              ),
               // Message (and menu if not floating)
               Positioned.directional(
                 textDirection:
                     widget.isSentByMe ? TextDirection.rtl : TextDirection.ltr,
                 start: widget.horizontalMessagePadding,
-                top: calculatedTop,
-                bottom: _useFloatingMenu ? 0 : null,
+                top: _useFloatingMenu ? 0 : calculatedTop,
                 width: widget.messageSize.width,
-                child: _useFloatingMenu
-                    ? SingleChildScrollView(
-                        controller: _scrollController,
-                        child: buildMessage(),
-                      )
-                    : Column(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.start,
-                        children: [
-                          buildMessage(),
-                          AnimatedScale(
-                            key: _menuItemsKey,
-                            scale: _showPickerAndMenu ? 1.0 : 0.5,
-                            duration: const Duration(milliseconds: 150),
-                            alignment:
-                                widget.isSentByMe
-                                    ? Alignment.topRight
-                                    : Alignment.topLeft,
-                            child: AnimatedOpacity(
-                              opacity: _showPickerAndMenu ? 1.0 : 0.0,
+                height: _useFloatingMenu ? screenHeight : null,
+                child:
+                    _useFloatingMenu
+                        ? SingleChildScrollView(
+                          controller: _scrollController,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  _hidePickerAndMenuBeforePop();
+                                  if (context.mounted) {
+                                    Navigator.of(context).pop();
+                                  }
+                                },
+                                child: Container(
+                                  height: _topPadding,
+                                  color: Colors.transparent,
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () {
+                                  _hidePickerAndMenuBeforePop();
+                                  if (context.mounted) {
+                                    Navigator.of(context).pop();
+                                  }
+                                },
+                                child: buildMessage(),
+                              ),
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () {
+                                  _hidePickerAndMenuBeforePop();
+                                  if (context.mounted) {
+                                    Navigator.of(context).pop();
+                                  }
+                                },
+                                child: Container(
+                                  height: 40,
+                                  color: Colors.transparent,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                        : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          children: [
+                            buildMessage(),
+                            AnimatedScale(
+                              key: _menuItemsKey,
+                              scale: _showPickerAndMenu ? 1.0 : 0.5,
                               duration: const Duration(milliseconds: 150),
-                              child: Padding(
-                                padding: const EdgeInsets.only(top: 10),
-                                child: buildMenuItems(context, theme),
+                              alignment:
+                                  widget.isSentByMe
+                                      ? Alignment.topRight
+                                      : Alignment.topLeft,
+                              child: AnimatedOpacity(
+                                opacity: _showPickerAndMenu ? 1.0 : 0.0,
+                                duration: const Duration(milliseconds: 150),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(top: 10),
+                                  child: buildMenuItems(context, theme),
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
               ),
               // Floating menu at bottom when message is too large
               if (_useFloatingMenu)
@@ -342,18 +398,22 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
                   start: widget.horizontalMessagePadding,
                   bottom: safeAreaBottom,
                   width: widget.messageSize.width,
-                  child: AnimatedScale(
-                    key: _menuItemsKey,
-                    scale: _showPickerAndMenu && _isScrolledToTop ? 1.0 : 0.5,
-                    duration: const Duration(milliseconds: 150),
-                    alignment:
-                        widget.isSentByMe
-                            ? Alignment.topRight
-                            : Alignment.topLeft,
-                    child: AnimatedOpacity(
-                      opacity: _showPickerAndMenu && _isScrolledToTop ? 1.0 : 0.0,
+                  child: GestureDetector(
+                    onTap: () {}, // Absorb taps on menu
+                    child: AnimatedScale(
+                      key: _menuItemsKey,
+                      scale: _showPickerAndMenu && _isScrolledToTop ? 1.0 : 0.5,
                       duration: const Duration(milliseconds: 150),
-                      child: buildMenuItems(context, theme),
+                      alignment:
+                          widget.isSentByMe
+                              ? Alignment.topRight
+                              : Alignment.topLeft,
+                      child: AnimatedOpacity(
+                        opacity:
+                            _showPickerAndMenu && _isScrolledToTop ? 1.0 : 0.0,
+                        duration: const Duration(milliseconds: 150),
+                        child: buildMenuItems(context, theme),
+                      ),
                     ),
                   ),
                 ),
@@ -365,15 +425,25 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
                   textDirection:
                       widget.isSentByMe ? TextDirection.rtl : TextDirection.ltr,
                   start: widget.horizontalMessagePadding,
-                  bottom: (mediaQuery.size.height - calculatedTop),
+                  bottom:
+                      _useFloatingMenu
+                          ? (mediaQuery.size.height - _topPadding)
+                          : (mediaQuery.size.height - calculatedTop),
                   width: widget.messageSize.width,
-                  child: AnimatedOpacity(
-                    key: _reactionsPickerKey,
-                    opacity: _showPickerAndMenu && (!_useFloatingMenu || _isScrolledToTop) ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 150),
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: buildReactionsPicker(context, theme),
+                  child: GestureDetector(
+                    onTap: () {}, // Absorb taps on reactions
+                    child: AnimatedOpacity(
+                      key: _reactionsPickerKey,
+                      opacity:
+                          _showPickerAndMenu &&
+                                  (!_useFloatingMenu || _isScrolledToTop)
+                              ? 1.0
+                              : 0.0,
+                      duration: const Duration(milliseconds: 150),
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: buildReactionsPicker(context, theme),
+                      ),
                     ),
                   ),
                 ),
@@ -468,43 +538,54 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
     );
   }
 
-  Align buildMessage() {
-    return Align(
-      alignment: widget.widgetAlignment ?? Alignment.centerRight,
-      child: Hero(
-        tag: widget.message.id,
-        flightShuttleBuilder: (
-          flightContext,
-          animation,
-          flightDirection,
-          fromHeroContext,
-          toHeroContext,
-        ) {
-          late VoidCallback showListener;
+  Widget buildMessage() {
+    // It needs to have a Material widget so that it can capture the clicks in
+    // the transparent section to close the dialog.
+    return Material(
+      color: Colors.transparent,
+      child: Align(
+        alignment: widget.widgetAlignment ?? Alignment.centerRight,
+        child: Hero(
+          tag: widget.message.id,
+          flightShuttleBuilder: (
+            flightContext,
+            animation,
+            flightDirection,
+            fromHeroContext,
+            toHeroContext,
+          ) {
+            late VoidCallback showListener;
 
-          showListener = () {
-            // We want to start the menu animation a bit before the hero animation ends
-            // to avoid a "sluggish" feeling
-            if (animation.value > 0.9 &&
-                !_showPickerAndMenu &&
-                animation.isForwardOrCompleted &&
-                widget.needsPositionAdjustment) {
-              if (mounted) {
-                setState(() {
-                  _showPickerAndMenu = true;
-                });
+            showListener = () {
+              // We want to start the menu animation a bit before the hero animation ends
+              // to avoid a "sluggish" feeling
+              if (animation.value > 0.9 &&
+                  !_showPickerAndMenu &&
+                  animation.isForwardOrCompleted &&
+                  widget.needsPositionAdjustment) {
+                if (mounted) {
+                  setState(() {
+                    _showPickerAndMenu = true;
+                  });
 
-                // Proper cleanup of the listener
-                animation.removeListener(showListener);
+                  // Proper cleanup of the listener
+                  animation.removeListener(showListener);
+                }
               }
-            }
-          };
+            };
 
-          animation.addListener(showListener);
+            animation.addListener(showListener);
 
-          return buildMessageWithProviders();
-        },
-        child: buildMessageWithProviders(),
+            return GestureDetector(
+              onTap: () {},
+              child: buildMessageWithProviders(),
+            );
+          },
+          child: GestureDetector(
+            onTap: () {},
+            child: buildMessageWithProviders(),
+          ),
+        ),
       ),
     );
   }
