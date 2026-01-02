@@ -369,7 +369,15 @@ class _ReactionsDialogWidgetState extends State<ReactionsDialogWidget>
                           mainAxisSize: MainAxisSize.min,
                           mainAxisAlignment: MainAxisAlignment.start,
                           children: [
-                            buildMessage(),
+                            GestureDetector(
+                              onTap: () {
+                                _hidePickerAndMenuBeforePop();
+                                if (context.mounted) {
+                                  Navigator.of(context).pop();
+                                }
+                              },
+                              child: buildMessage(),
+                            ),
                             AnimatedScale(
                               key: _menuItemsKey,
                               scale: _showPickerAndMenu ? 1.0 : 0.5,
