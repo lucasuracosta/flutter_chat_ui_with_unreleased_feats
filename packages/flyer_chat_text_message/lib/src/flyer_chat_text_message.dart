@@ -139,6 +139,19 @@ class FlyerChatTextMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Bail out gracefully if mounted in a context without the required Chat
+    // providers — production has hit this transiently due to detached subtrees
+    // (Hero flights, foreground-resume rebuilds, batch list inflation, etc.).
+    // Throwing here would be reported as a non-fatal and replaced by a blank
+    // ErrorWidget; rendering nothing is just as invisible and avoids the noise.
+    try {
+      Provider.of<ChatTheme>(context, listen: false);
+      Provider.of<UserID>(context, listen: false);
+      Provider.of<Builders>(context, listen: false);
+    } catch (_) {
+      return const SizedBox.shrink();
+    }
+
     final theme = context.select(
       (ChatTheme t) => (
         bodyMedium: t.typography.bodyMedium,

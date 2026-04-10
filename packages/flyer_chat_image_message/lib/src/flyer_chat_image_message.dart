@@ -157,7 +157,10 @@ class FlyerChatImageMessage extends StatefulWidget {
 /// State for [FlyerChatImageMessage].
 class _FlyerChatImageMessageState extends State<FlyerChatImageMessage>
     with TickerProviderStateMixin {
-  late final ChatController _chatController;
+  // Nullable so initState doesn't crash if the widget is mounted in a context
+  // without a Provider<ChatController> ancestor (seen in production via Hero
+  // flights, foreground-resume rebuilds, and other transient detached subtrees).
+  ChatController? _chatController;
   late ImageProvider _imageProvider;
   late double _aspectRatio;
   ImageProvider? _placeholderProvider;
@@ -192,14 +195,18 @@ class _FlyerChatImageMessageState extends State<FlyerChatImageMessage>
       _aspectRatio = 1;
     }
 
-    _chatController = context.read<ChatController>();
+    try {
+      _chatController = context.read<ChatController>();
+    } catch (_) {
+      _chatController = null;
+    }
     _imageProvider = _targetProvider;
 
     if (width == null || height == null) {
       getImageDimensions(_imageProvider).then((dimensions) {
         if (mounted) {
           _aspectRatio = dimensions.$1 / dimensions.$2;
-          _chatController.updateMessage(
+          _chatController?.updateMessage(
             widget.message,
             widget.message.copyWith(
               width: dimensions.$1,
@@ -208,6 +215,21 @@ class _FlyerChatImageMessageState extends State<FlyerChatImageMessage>
           );
         }
       });
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Recover the controller if it wasn't available at initState time
+    // (e.g. when the subtree is mounted detached during a route transition
+    // and later reattached under a Provider<ChatController> ancestor).
+    if (_chatController == null) {
+      try {
+        _chatController = context.read<ChatController>();
+      } catch (_) {
+        // Still no provider — leave null and degrade gracefully.
+      }
     }
   }
 
@@ -226,7 +248,7 @@ class _FlyerChatImageMessageState extends State<FlyerChatImageMessage>
           getImageDimensions(_imageProvider).then((dimensions) {
             if (mounted) {
               _aspectRatio = dimensions.$1 / dimensions.$2;
-              _chatController.updateMessage(
+              _chatController?.updateMessage(
                 widget.message,
                 widget.message.copyWith(
                   width: dimensions.$1,

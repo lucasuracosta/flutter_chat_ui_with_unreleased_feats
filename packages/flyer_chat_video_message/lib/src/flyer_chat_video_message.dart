@@ -147,7 +147,10 @@ class FlyerChatVideoMessage extends StatefulWidget {
 
 /// State for [FlyerChatVideoMessage].
 class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
-  late final ChatController _chatController;
+  // Nullable so initState doesn't crash if the widget is mounted in a context
+  // without a Provider<ChatController> ancestor (seen in production via Hero
+  // flights, foreground-resume rebuilds, and other transient detached subtrees).
+  ChatController? _chatController;
   ImageProvider? _placeholderProvider;
   late double _aspectRatio;
 
@@ -175,7 +178,11 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
       _placeholderProvider = MemoryImage(bmp);
     }
 
-    _chatController = context.read<ChatController>();
+    try {
+      _chatController = context.read<ChatController>();
+    } catch (_) {
+      _chatController = null;
+    }
 
     // Only generate thumbnail if not already in metadata
     if (widget.message.metadata?['thumbnail'] is! Uint8List) {
@@ -183,6 +190,21 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
         _generateImageCover();
       } catch (e) {
         debugPrint('Could not generate image cover: ${e.toString()}');
+      }
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Recover the controller if it wasn't available at initState time
+    // (e.g. when the subtree is mounted detached during a route transition
+    // and later reattached under a Provider<ChatController> ancestor).
+    if (_chatController == null) {
+      try {
+        _chatController = context.read<ChatController>();
+      } catch (_) {
+        // Still no provider — leave null and degrade gracefully.
       }
     }
   }
