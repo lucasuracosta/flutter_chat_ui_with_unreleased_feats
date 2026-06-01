@@ -1090,12 +1090,26 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
 
     final visualIndex = _contentToBelow(index);
 
+    // scrollview_observer's `alignment` is item-relative (it offsets by
+    // childSize * alignment), so on its own it cannot place a message at a
+    // viewport fraction — passing 0.5 for a tall message scrolls it far past
+    // the top. Translate the documented viewport-relative alignment
+    // (0 = top, 0.5 = middle, 1 = bottom) into the observer's `offset`: pushing
+    // the target down by alignment * viewportExtent, combined with the observer's
+    // own childSize * alignment term, lands the item's center at that fraction
+    // regardless of its height. Only for non-reversed lists; the reversed
+    // anchor path relies on the observer's native alignment behaviour.
+    final double resolvedOffset = (!widget.reversed &&
+            _scrollController.hasClients)
+        ? offset + alignment * _scrollController.position.viewportDimension
+        : offset;
+
     try {
       if (duration == Duration.zero) {
         await _observerController.jumpTo(
           index: visualIndex,
           alignment: alignment,
-          offset: (targetOffset) => offset,
+          offset: (targetOffset) => resolvedOffset,
           renderSliverType: ObserverRenderSliverType.list,
         );
       } else {
@@ -1104,7 +1118,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
           duration: duration,
           curve: curve,
           alignment: alignment,
-          offset: (targetOffset) => offset,
+          offset: (targetOffset) => resolvedOffset,
           renderSliverType: ObserverRenderSliverType.list,
         );
       }
