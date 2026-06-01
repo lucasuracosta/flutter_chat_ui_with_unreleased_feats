@@ -184,12 +184,31 @@ class ChatAnimatedList extends StatefulWidget {
 /// State for [ChatAnimatedList].
 class _ChatAnimatedListState extends State<ChatAnimatedList>
     with TickerProviderStateMixin {
-  final GlobalKey<SliverAnimatedListState> _listKey = GlobalKey();
+  // Reassigned on a non-reversed setMessages to force the SliverAnimatedList to
+  // rebuild cleanly from the new messages (see ChatOperationType.set).
+  GlobalKey<SliverAnimatedListState> _listKey = GlobalKey();
   late final ChatController _chatController;
   late final SliverObserverController _observerController;
   late final ScrollController _scrollController;
   late List<Message> _oldList;
   late ValueNotifier<bool> _oldListEmptyNotifier;
+
+  // --- Center-pivot pagination (non-reversed lists only) ---
+  // The non-reversed list is rendered as two regions around a zero-size center
+  // sliver in a CustomScrollView with `anchor: 0`:
+  //   * messages [0.._centerIndex)  -> "history", rendered ABOVE the center by a
+  //     plain SliverList. Slivers before the center occupy NEGATIVE scroll
+  //     offset, so prepending older messages here grows the content upward and
+  //     never shifts the visible viewport — jump-free pagination, natively, with
+  //     no scroll-offset correction.
+  //   * messages [_centerIndex..]   -> "live", rendered BELOW the center by the
+  //     SliverAnimatedList (keeps insert/remove animations for realtime/sent
+  //     messages). `anchor: 0` puts offset 0 at the top, so a short chat is
+  //     top-aligned (disclaimer + messages at the top, gap above the composer).
+  // _centerIndex == 0 means no history has been split out (initial / short chat).
+  // Only meaningful when !widget.reversed; reversed keeps the legacy single-list.
+  int _centerIndex = 0;
+  final GlobalKey _centerKey = GlobalKey();
   late final StreamSubscription<ChatOperation> _operationsSubscription;
 
   // Queue of operations to be processed
@@ -230,7 +249,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   void initState() {
     super.initState();
     _chatController = context.read<ChatController>();
-    _scrollController = widget.scrollController ?? _PrependAwareScrollController();
+    _scrollController = widget.scrollController ?? ScrollController();
     _observerController = SliverObserverController(
       controller: _scrollController,
     )..cacheJumpIndexOffset = false;
@@ -355,6 +374,17 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     return widget.reversed ? 0 : _scrollController.position.maxScrollExtent;
   }
 
+  /// The user's scroll position as a fraction from the top (0) to the bottom
+  /// (1) of the full scrollable range. Uses the full
+  /// [minScrollExtent, maxScrollExtent] range so it stays correct when the
+  /// center pivot pushes history into negative offset (minScrollExtent < 0).
+  double _scrollFractionFromTop() {
+    final position = _scrollController.position;
+    final range = position.maxScrollExtent - position.minScrollExtent;
+    if (range <= 0) return 0;
+    return (position.pixels - position.minScrollExtent) / range;
+  }
+
   /// If the scroll-to-bottom button should be shown.
   bool get _shouldShowScrollToBottomButton {
     final scrollOffsetFromBottom =
@@ -369,28 +399,75 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   Widget build(BuildContext context) {
     final builders = context.read<Builders>();
 
-    // Define the SliverAnimatedList once as it's used for both
-    // reversed and non-reversed lists.
+    // The SliverAnimatedList renders the "live" region: the whole list when
+    // reversed, or messages [_centerIndex..] (below the center) when not.
     final sliverAnimatedList = SliverAnimatedList(
       key: _listKey,
-      initialItemCount: _oldList.length,
+      initialItemCount: widget.reversed ? _oldList.length : _belowCount,
       itemBuilder: (
         BuildContext context,
         int index,
         Animation<double> animation,
       ) {
-        final message = _oldList[visualPosition(index)];
+        final contentIndex = _belowToContent(index);
+        // Guard against transient out-of-range indices during inserts/removes.
+        if (contentIndex < 0 || contentIndex >= _oldList.length) {
+          return const SizedBox.shrink();
+        }
+        final message = _oldList[contentIndex];
 
         return widget.itemBuilder(
           context,
           message,
-          visualPosition(index),
+          contentIndex,
           animation,
           messagesGroupingMode: widget.messagesGroupingMode,
           messageGroupingTimeoutInSeconds:
               widget.messageGroupingTimeoutInSeconds,
         );
       },
+    );
+
+    // The "history" region (non-reversed only): messages [0.._centerIndex)
+    // rendered ABOVE the center sliver by a plain SliverList (no animations
+    // needed — history loads in bulk). Children are laid out in the reverse
+    // growth direction (before the center), so child 0 is the newest history
+    // message sitting just above the center, growing older/upward.
+    final historySliver = SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, i) {
+          final contentIndex = _centerIndex - 1 - i;
+          if (contentIndex < 0 || contentIndex >= _oldList.length) {
+            return const SizedBox.shrink();
+          }
+          return widget.itemBuilder(
+            context,
+            _oldList[contentIndex],
+            contentIndex,
+            kAlwaysCompleteAnimation,
+            messagesGroupingMode: widget.messagesGroupingMode,
+            messageGroupingTimeoutInSeconds:
+                widget.messageGroupingTimeoutInSeconds,
+          );
+        },
+        childCount: _centerIndex,
+        findChildIndexCallback: (key) {
+          if (key is ValueKey<String>) {
+            final idx = _oldList.indexWhere((m) => m.id == key.value);
+            if (idx >= 0 && idx < _centerIndex) {
+              return _centerIndex - 1 - idx;
+            }
+          }
+          return null;
+        },
+      ),
+    );
+
+    // Zero-size pivot. Everything listed before it occupies negative scroll
+    // offset (history, grows upward); everything after occupies positive offset.
+    final centerSliver = SliverToBoxAdapter(
+      key: _centerKey,
+      child: const SizedBox.shrink(),
     );
 
     List<Widget> buildSlivers() {
@@ -409,18 +486,37 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
           // Visually at the top (last in sliver list for reverse: true)
         ];
       } else {
-        // Order for CustomScrollView(reverse: false) -> Visual Top to Bottom
+        // Non-reversed: two regions around the center pivot. Slivers BEFORE the
+        // center are laid out in REVERSE order from the center upward, so the
+        // last entry before the center sits closest to it.
+        //
+        // topPadding stays permanently above the center (topmost). It must NOT
+        // migrate across the pivot when history first appears, or the live
+        // region would shift by its height on the first load-older.
+        //
+        // topSliver (e.g. the "start of chat" disclaimer) sits above the history
+        // when history exists, otherwise at the top of the live region so a
+        // short chat shows it at the top instead of in negative (off-screen)
+        // offset. This never actually migrates: topSliver is only non-null once
+        // the start is reached, and by then `hasHistory` is already settled for
+        // that conversation (a short chat keeps _centerIndex == 0; a paginated
+        // chat reaches the start with _centerIndex > 0).
+        final bool hasHistory = _centerIndex > 0;
         return <Widget>[
-          // Visually at the top
+          // ----- before center (negative offset, grows upward) -----
           if (widget.topPadding != null)
             SliverPadding(padding: EdgeInsets.only(top: widget.topPadding!)),
-          if (widget.topSliver != null) widget.topSliver!,
+          if (hasHistory && widget.topSliver != null) widget.topSliver!,
           if (widget.onEndReached != null) _buildLoadMoreSliver(builders),
+          historySliver,
+          // ----- center pivot (scroll offset 0, top of viewport) -----
+          centerSliver,
+          // ----- after center (positive offset, grows downward) -----
+          if (!hasHistory && widget.topSliver != null) widget.topSliver!,
           sliverAnimatedList,
           if (widget.onStartReached != null) _buildLoadMoreStartSliver(builders),
           if (widget.bottomSliver != null) widget.bottomSliver!,
           _buildComposerHeightSliver(context),
-          // Visually at the bottom
         ];
       }
     }
@@ -479,6 +575,11 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
             child: CustomScrollView(
               controller: _scrollController,
               reverse: widget.reversed,
+              // Non-reversed lists pivot around the center sliver so prepended
+              // history grows into negative offset (jump-free). anchor: 0 keeps
+              // offset 0 at the top of the viewport (top-aligned short chats).
+              center: widget.reversed ? null : _centerKey,
+              anchor: 0,
               physics: widget.physics,
               keyboardDismissBehavior:
                   widget.keyboardDismissBehavior ??
@@ -786,11 +887,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     // Calculate the user's scroll position as a percentage of the total scrollable area, ranging from 0 to 1.
     // In a standard list, 0 represents the topmost position and 1 represents the bottommost position.
     // In a reversed list, the values are inverted: 1 indicates the top and 0 indicates the bottom.
-    final scrollPercentage =
-        _scrollController.position.maxScrollExtent == 0
-            ? 0
-            : _scrollController.offset /
-                _scrollController.position.maxScrollExtent;
+    final scrollPercentage = _scrollFractionFromTop();
 
     final shouldTrigger =
         widget.reversed
@@ -841,11 +938,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     // Calculate the user's scroll position as a percentage of the total scrollable area, ranging from 0 to 1.
     // In a standard list, 0 represents the topmost position and 1 represents the bottommost position.
     // In a reversed list, the values are inverted: 1 indicates the top and 0 indicates the bottom.
-    final scrollPercentage =
-        _scrollController.position.maxScrollExtent == 0
-            ? 0
-            : _scrollController.offset /
-                _scrollController.position.maxScrollExtent;
+    final scrollPercentage = _scrollFractionFromTop();
 
     final shouldTrigger =
         widget.reversed
@@ -973,13 +1066,29 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       return;
     }
 
+    // The observer can only reach items rendered by the live SliverAnimatedList.
+    // If the target is in the history region (above the center), collapse history
+    // back into the live list first so it becomes reachable, then wait a frame
+    // for layout. This is a deliberate jump, so the resulting shift is fine.
+    if (_isHistory(index)) {
+      _collapseHistoryIntoList();
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      // A queued operation (e.g. a load-older) could have run during the awaited
+      // frame, shifting indices and re-splitting history. Bail rather than
+      // scroll to a stale/wrong target; the caller can retry by message id.
+      if (index >= _oldList.length || _isHistory(index)) {
+        return;
+      }
+    }
+
     // If the context is null, it means the list is not
     // in the tree, and there's nothing to scroll to.
     if (_listKey.currentContext == null) {
       return;
     }
 
-    final visualIndex = visualPosition(index);
+    final visualIndex = _contentToBelow(index);
 
     try {
       if (duration == Duration.zero) {
@@ -1011,6 +1120,17 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       _userHasScrolled = false;
     }
 
+    // Insertion into the history region (above the center): no animated-list
+    // op, just grow `_oldList` and the pivot and rebuild the plain history
+    // sliver. Grows into negative offset -> no viewport shift.
+    if (_isHistory(position)) {
+      _oldList.insert(position, data);
+      _updateOldListEmptyNotifier();
+      _lastInsertedMessageId = data.id;
+      if (mounted) setState(() => _centerIndex += 1);
+      return;
+    }
+
     final Duration duration;
     // Determine the animation duration for inserting the item.
     // - For reversed lists, always use the specified insert animation duration.
@@ -1034,7 +1154,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     _updateOldListEmptyNotifier();
     // The insertItem method requires the position of the item after the insert
     _listKey.currentState!.insertItem(
-      visualPosition(position),
+      _contentToBelow(position),
       // We are only animating items when scroll view is not yet scrollable,
       // otherwise we just insert the item without animation.
       // (animation is replaced with scroll to bottom animation)
@@ -1054,21 +1174,28 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       _userHasScrolled = false;
     }
 
-    // Anchor scroll: when prepending older messages (position 0, non-reversed,
-    // non-empty list, not a replace-diff), arm a ONE-SHOT scroll correction.
-    // It snapshots the current extent/offset now, then on the next layout pass
-    // (inside applyContentDimensions, before paint) shifts pixels by exactly the
-    // growth so the viewport stays anchored — zero visual shift, no jumpTo, no
-    // per-pass correction loop. Skip for initial load (list empty) and
-    // setMessages diffs.
-    final bool shouldAnchor = !widget.reversed &&
-        position == 0 &&
+    // Inserting at/above the pivot (non-reversed, non-empty list, not a
+    // replace-diff): route into the history region above the center. The common
+    // case is load-older at position 0 — these grow into negative scroll offset,
+    // so the viewport never shifts (jump-free pagination, no scroll correction).
+    // Covering `position <= _centerIndex` (not just == 0) also keeps any
+    // bulk insert that lands inside the history window out of the live
+    // SliverAnimatedList, which would otherwise get a negative visual index.
+    // Skipped for the initial load (empty list -> everything below the center)
+    // and for setMessages diffs (history is collapsed first).
+    final bool routeToHistory = !widget.reversed &&
+        position <= _centerIndex &&
         _oldList.isNotEmpty &&
-        !_isReplacingMessages &&
-        _scrollController is _PrependAwareScrollController;
-    if (shouldAnchor) {
-      (_scrollController as _PrependAwareScrollController)
-          .armPrependCorrection();
+        !_isReplacingMessages;
+    if (routeToHistory) {
+      _oldList.insertAll(0, messagesToInsert);
+      _updateOldListEmptyNotifier();
+      if (mounted) {
+        setState(() => _centerIndex += messagesToInsert.length);
+      } else {
+        _centerIndex += messagesToInsert.length;
+      }
+      return;
     }
 
     final Duration duration;
@@ -1107,10 +1234,9 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
         position + messagesToInsert.length - 1,
       );
     } else {
-      // Normal list
-      // For non-reversed, content position is the same as visual insertion position.
-      // visualPosition(position) will correctly return `position`.
-      visualStartIndexForInsertAllItems = visualPosition(position);
+      // Normal list: map the content position into the live (below-center)
+      // SliverAnimatedList index.
+      visualStartIndexForInsertAllItems = _contentToBelow(position);
     }
 
     _listKey.currentState!.insertAllItems(
@@ -1123,20 +1249,18 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     // come from pagination (load older / load newer / missing messages) and
     // the caller owns the resulting scroll position. Auto-scroll-to-end only
     // makes sense for single real-time messages (_onInserted).
-
-    // Safety: if for any reason the correction never fired (e.g. growth fell
-    // below the layout tolerance so applyContentDimensions skipped it), disarm
-    // it after this frame so it can never apply to an unrelated later change.
-    if (shouldAnchor) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        (_scrollController as _PrependAwareScrollController)
-            .disarmPrependCorrection();
-      });
-    }
   }
 
   void _onRemoved(final int position, final Message data) {
+    // Removal from the history region (above the center): no animated-list op,
+    // just shrink `_oldList` and the pivot and rebuild the plain history sliver.
+    if (_isHistory(position)) {
+      _oldList.removeAt(position);
+      _updateOldListEmptyNotifier();
+      if (mounted) setState(() => _centerIndex -= 1);
+      return;
+    }
+
     // Use animation duration resolver if provided, otherwise use default duration.
     final duration =
         widget.removeAnimationDurationResolver != null
@@ -1146,7 +1270,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
 
     // Calculate the visual index for SliverAnimatedList.removeItem BEFORE modifying _oldList.
     // SliverAnimatedList.removeItem expects the index of the item *before* it's removed.
-    final visualIndex = visualPosition(position);
+    final visualIndex = _contentToBelow(position);
 
     _oldList.removeAt(position);
     _updateOldListEmptyNotifier();
@@ -1192,6 +1316,14 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   /// the `SliverAnimatedList` removal and insertion animations to visually
   /// represent the move.
   void _onMove(int oldPosition, int newPosition, Message data) {
+    // Moves only arrive via the setMessages diff, which collapses history first
+    // (so _centerIndex == 0 and every position is in the live region). This
+    // assert locks that invariant: a move crossing the pivot would desync the
+    // SliverAnimatedList count, since the two halves route independently.
+    assert(
+      widget.reversed || _centerIndex == 0,
+      '_onMove must run with history collapsed (_centerIndex == 0).',
+    );
     // 1. Perform the removal part of the move.
     // This removes the item from _oldList at oldPos and triggers removeItem animation.
     _onRemoved(oldPosition, data);
@@ -1228,6 +1360,38 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     return widget.reversed
         ? max(_oldList.length - indexPosition - 1, 0)
         : indexPosition;
+  }
+
+  /// Number of messages rendered by the "live" SliverAnimatedList (below the
+  /// center). For reversed lists this is the whole list.
+  int get _belowCount =>
+      widget.reversed ? _oldList.length : _oldList.length - _centerIndex;
+
+  /// Maps a SliverAnimatedList visual index -> index in `_oldList` (content).
+  int _belowToContent(int sliverIndex) =>
+      widget.reversed ? visualPosition(sliverIndex) : sliverIndex + _centerIndex;
+
+  /// Maps an `_oldList` index (content) -> SliverAnimatedList visual index.
+  /// Only valid for content indices in the live region ([_centerIndex..]).
+  int _contentToBelow(int contentIndex) =>
+      widget.reversed ? visualPosition(contentIndex) : contentIndex - _centerIndex;
+
+  /// Whether the given content index lives in the history region (above the
+  /// center) and is therefore NOT rendered by the SliverAnimatedList.
+  bool _isHistory(int contentIndex) =>
+      !widget.reversed && contentIndex < _centerIndex;
+
+  /// Collapses the history region back into the live list by resetting the pivot
+  /// to 0 and giving the [SliverAnimatedList] a fresh key, so it rebuilds from
+  /// scratch over the full `_oldList` (its `initialItemCount` becomes the full
+  /// length). Avoids the build-then-discard churn of re-inserting every history
+  /// item one frame before a diff removes them. The new list is only realized on
+  /// the next build, so callers that need to act on it must await a frame.
+  void _collapseHistoryIntoList() {
+    if (widget.reversed || _centerIndex <= 0) return;
+    _centerIndex = 0;
+    _listKey = GlobalKey<SliverAnimatedListState>();
+    if (mounted) setState(() {});
   }
 
   void _onDiffUpdate(diffutil.DataDiffUpdate<Message> update) {
@@ -1284,6 +1448,20 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
             // If op.messages is null, it signifies that the list should be cleared.
             final newList = op.messages ?? const <Message>[];
 
+            if (!widget.reversed) {
+              // Non-reversed: a setMessages is always a full replace (jump-to-
+              // message / refresh / first-page). Swap the data and give the
+              // SliverAnimatedList a fresh key so it rebuilds directly over the
+              // new messages — no per-item diff, no history rebuild churn, pivot
+              // back to 0 (top-aligned). The caller re-positions the scroll.
+              _oldList = List.of(newList);
+              _centerIndex = 0;
+              _listKey = GlobalKey<SliverAnimatedListState>();
+              _updateOldListEmptyNotifier();
+              if (mounted) setState(() {});
+              break;
+            }
+
             final updates =
                 diffutil
                     .calculateDiff<Message>(
@@ -1315,98 +1493,16 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
               'Index must be provided when updating a message.',
             );
             _oldList[op.index!] = op.message!;
+            // If the updated message lives in the history region, rebuild the
+            // plain history sliver so the change is reflected (the live region
+            // is driven by the SliverAnimatedList / message widgets themselves).
+            if (_isHistory(op.index!) && mounted) {
+              setState(() {});
+            }
             break;
         }
       }
     }
     _isProcessingOperations = false;
-  }
-}
-
-/// A [ScrollController] that keeps the viewport anchored when older content is
-/// prepended to a non-reversed list.
-///
-/// Call [armPrependCorrection] immediately BEFORE inserting items at the top.
-/// It snapshots the current [ScrollPosition.maxScrollExtent] and
-/// [ScrollPosition.pixels]. On the next layout pass, the position consumes that
-/// snapshot inside [applyContentDimensions] (via [correctForNewDimensions]) and
-/// shifts [pixels] by the exact growth in extent, so the content the user was
-/// looking at stays fixed. The correction happens before paint (no flash) and
-/// fires exactly ONCE (no relayout loop, no fighting an active fling).
-class _PrependAwareScrollController extends ScrollController {
-  // One-shot correction state. Armed right before a prepend; consumed by the
-  // position on the first subsequent layout pass.
-  bool _correctionArmed = false;
-  double _baselineMaxExtent = 0;
-  double _baselinePixels = 0;
-
-  /// Arms a one-shot scroll correction to absorb the height of content about to
-  /// be prepended. Must be called BEFORE the items are inserted, while the
-  /// metrics still reflect the old content.
-  void armPrependCorrection() {
-    if (!hasClients) return;
-    _correctionArmed = true;
-    _baselineMaxExtent = position.maxScrollExtent;
-    _baselinePixels = position.pixels;
-  }
-
-  /// Disarms a pending correction that never fired (safety net).
-  void disarmPrependCorrection() => _correctionArmed = false;
-
-  @override
-  ScrollPosition createScrollPosition(
-    ScrollPhysics physics,
-    ScrollContext context,
-    ScrollPosition? oldPosition,
-  ) {
-    return _PrependAwareScrollPosition(
-      controller: this,
-      physics: physics,
-      context: context,
-      oldPosition: oldPosition,
-    );
-  }
-}
-
-class _PrependAwareScrollPosition extends ScrollPositionWithSingleContext {
-  _PrependAwareScrollPosition({
-    required _PrependAwareScrollController controller,
-    required super.physics,
-    required super.context,
-    super.oldPosition,
-  }) : _controller = controller;
-
-  final _PrependAwareScrollController _controller;
-
-  /// Called by [applyContentDimensions] when the scroll extents change.
-  /// [newPosition] reflects the new extents with [pixels] still at the
-  /// pre-correction value.
-  ///
-  /// When a prepend correction is armed, content grew because older messages
-  /// were inserted above the viewport. We shift pixels by the exact growth
-  /// (new extent minus the snapshot taken before the insert) so the viewport
-  /// stays anchored, then return false to force a single immediate relayout
-  /// from the corrected offset. The armed flag is consumed first so this can
-  /// only ever run once — otherwise the lazy list's offset-dependent
-  /// maxScrollExtent estimate would feed back into another correction and trip
-  /// "RenderViewport exceeded its maximum number of layout cycles".
-  @override
-  bool correctForNewDimensions(
-    ScrollMetrics oldPosition,
-    ScrollMetrics newPosition,
-  ) {
-    if (_controller._correctionArmed) {
-      _controller._correctionArmed = false; // consume — strictly one-shot
-      final growth =
-          newPosition.maxScrollExtent - _controller._baselineMaxExtent;
-      if (growth > 0) {
-        // correctPixels (not correctBy) — does NOT set
-        // _didChangeViewportDimensionOrReceiveCorrection, which would
-        // trip the assert inside applyContentDimensions.
-        correctPixels(_controller._baselinePixels + growth);
-        return false; // relayout once from the corrected offset, same frame
-      }
-    }
-    return super.correctForNewDimensions(oldPosition, newPosition);
   }
 }
