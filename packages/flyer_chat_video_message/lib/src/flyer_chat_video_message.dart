@@ -190,11 +190,18 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
     }
 
     // If thumbnail already exists in metadata, update aspect ratio from it
-    // (thumbnail will have correct orientation from EXIF data)
+    // (thumbnail will have correct orientation from EXIF data) — unless the
+    // caller already supplied reliable width/height (e.g. AspectRatioCorrected-
+    // VideoMessage), in which case the async decode would only cause a redundant
+    // setState that glitches hero flight animations.
+    final bool hasDimensions =
+        widget.message.width != null && widget.message.height != null;
     if (widget.message.metadata?['thumbnail'] is Uint8List) {
-      _updateAspectRatioFromThumbnail(
-        widget.message.metadata!['thumbnail'] as Uint8List,
-      );
+      if (!hasDimensions) {
+        _updateAspectRatioFromThumbnail(
+          widget.message.metadata!['thumbnail'] as Uint8List,
+        );
+      }
     } else {
       // Generate thumbnail if not already in metadata
       try {
@@ -352,23 +359,7 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
 
     Widget useHero(bool enabled, {required Widget child}) {
       if (enabled) {
-        return Hero(
-          tag: widget.message.id,
-          flightShuttleBuilder: (
-            BuildContext flightContext,
-            Animation<double> animation,
-            HeroFlightDirection flightDirection,
-            BuildContext fromHeroContext,
-            BuildContext toHeroContext,
-          ) {
-            final dynamic thumbnail = widget.message.metadata?['thumbnail'];
-            if (thumbnail is Uint8List) {
-              return Image.memory(thumbnail, fit: BoxFit.contain);
-            }
-            return child;
-          },
-          child: child,
-        );
+        return Hero(tag: widget.message.id, child: child);
       }
       return child;
     }
