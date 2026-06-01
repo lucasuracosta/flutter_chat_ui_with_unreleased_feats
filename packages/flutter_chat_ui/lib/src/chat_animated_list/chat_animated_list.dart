@@ -231,6 +231,11 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   // Revealed once positioned at the bottom (or by a safety fallback).
   bool _initialScrollSettled = false;
   Timer? _initialScrollFallbackTimer;
+  // Bounds the initial jump-to-bottom. A lazy list's maxScrollExtent oscillates
+  // as off-screen items recycle, so "jump until offset == max" can loop forever
+  // (infinite bounce). Capping the attempts converges close to the bottom and
+  // then settles.
+  int _initialScrollAttempts = 0;
   MessageID _lastInsertedMessageId = '';
   // Controls whether pagination should be triggered when scrolling to the top.
   // Set to true when user scrolls up, and false after pagination is triggered.
@@ -302,11 +307,13 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     // Hide content during the initial jump-to-bottom (only when one is pending).
     _initialScrollSettled = !_needsInitialScrollPositionAdjustment;
     if (!_initialScrollSettled) {
-      // Safety net: never leave the content hidden if the jump never settles
-      // (e.g. the first page never arrives). Reveal after a short grace period.
+      // Safety net: never leave the content hidden or the jump-loop running if
+      // it never settles (e.g. the first page never arrives, or maxScrollExtent
+      // keeps oscillating). After a short grace period, stop adjusting and
+      // reveal whatever position we're at.
       _initialScrollFallbackTimer = Timer(const Duration(seconds: 2), () {
         if (mounted && !_initialScrollSettled) {
-          setState(() => _initialScrollSettled = true);
+          _finishInitialScrollAdjustment();
         }
       });
     }
@@ -831,11 +838,15 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       }
 
       // Jump to the end (newest at the bottom). maxScrollExtent is a lazy
-      // estimate, so this may take a few frames to converge; the content stays
-      // hidden until offset reaches the bottom, so the convergence is invisible.
-      if (_scrollController.offset >= maxExtent - 0.5) {
+      // estimate that can oscillate as off-screen items recycle, so we cap the
+      // number of jumps — otherwise "jump until offset == max" bounces forever.
+      // The content stays hidden during these few frames, so the convergence is
+      // invisible; after the cap we settle near the bottom regardless.
+      if (_scrollController.offset >= maxExtent - 0.5 ||
+          _initialScrollAttempts >= 8) {
         _finishInitialScrollAdjustment();
       } else {
+        _initialScrollAttempts++;
         _scrollController.jumpTo(maxExtent);
       }
     });
