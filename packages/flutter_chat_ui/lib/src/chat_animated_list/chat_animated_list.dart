@@ -802,43 +802,17 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       // Prevent multiple triggers during one scroll gesture.
       _paginationShouldTrigger = false;
 
-      // Store the ID of the topmost visible item before loading new messages.
-      // This item will be used as an anchor to maintain scroll position.
-      MessageID? anchorMessageId;
-      int? initialMessagesCount;
-
-      // --- Scroll Anchoring Setup: Only for non-reversed lists ---
-      if (!widget.reversed) {
-        try {
-          // We can only anchor the scroll position if the list is actually
-          // in the widget tree and has a context.
-          if (_listKey.currentContext != null) {
-            final notificationResult = await _observerController
-                .dispatchOnceObserve(
-                  sliverContext: _listKey.currentContext!,
-                  isForce: true,
-                  isDependObserveCallback: false,
-                );
-            final firstItem =
-                notificationResult
-                    .observeResult
-                    ?.innerDisplayingChildModelList
-                    .firstOrNull;
-            final anchorIndex = firstItem?.index;
-
-            if (anchorIndex != null &&
-                anchorIndex >= 0 &&
-                anchorIndex < _oldList.length) {
-              anchorMessageId = _oldList[anchorIndex].id;
-            }
-          }
-        } catch (e) {
-          debugPrint('Error observing scroll position for anchoring: $e');
-        }
-        if (!mounted) return;
-        initialMessagesCount = _oldList.length;
+      // Capture the current scroll offset and total scrollable extent BEFORE
+      // anything is added.  When older messages are prepended at position 0,
+      // maxScrollExtent grows by exactly the height of the new items.
+      // Restoring offset = preLoadOffset + delta keeps every visible item at
+      // the same pixel position — no seeking, one atomic jumpTo.
+      double? preLoadOffset;
+      double? preLoadMaxExtent;
+      if (!widget.reversed && _scrollController.hasClients) {
+        preLoadOffset = _scrollController.offset;
+        preLoadMaxExtent = _scrollController.position.maxScrollExtent;
       }
-      // --- End Scroll Anchoring Setup ---
 
       // Ensure mounted before using context or calling async widget callbacks
       if (!mounted) return;
@@ -853,35 +827,25 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       if (!mounted) return;
 
       // Frame N+1: collapse the loading indicator so its height change is
-      // absorbed into the layout before we compute the anchor jump offset.
+      // absorbed into the layout before we measure the new maxScrollExtent.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         context.read<LoadMoreNotifier>().setLoading(false);
 
-        // Frame N+2: new items are fully measured and the indicator is gone —
-        // now it is safe to jump to the anchor without pixel-offset error.
+        // Frame N+2: indicator is gone, all new items are laid out.
+        // maxScrollExtent - preLoadMaxExtent == total height of prepended items.
+        // Shifting offset by the same delta keeps the viewport anchored.
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!_scrollController.hasClients || !mounted) return;
-
-          // --- Scroll Anchoring Action: Only for non-reversed lists ---
-          if (!widget.reversed) {
-            // initialMessageCount will be non-null here if !widget.reversed
-            final didAddMessages = _oldList.length > initialMessagesCount!;
-            if (didAddMessages && anchorMessageId != null) {
-              final newIndex = _oldList.indexWhere(
-                (m) => m.id == anchorMessageId,
-              );
-              if (newIndex != -1) {
-                _scrollToIndex(
-                  newIndex,
-                  duration: Duration.zero, // Jump immediately
-                  alignment: 0, // Align to the top edge
-                  offset: 0, // Keep item top edge aligned with viewport top edge
-                );
-              }
+          if (!mounted || !_scrollController.hasClients) return;
+          if (!widget.reversed &&
+              preLoadOffset != null &&
+              preLoadMaxExtent != null) {
+            final delta =
+                _scrollController.position.maxScrollExtent - preLoadMaxExtent;
+            if (delta > 0) {
+              _scrollController.jumpTo(preLoadOffset + delta);
             }
           }
-          // --- End Scroll Anchoring Action ---
         });
       });
     }
