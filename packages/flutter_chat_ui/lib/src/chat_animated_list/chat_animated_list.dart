@@ -1066,50 +1066,27 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       return;
     }
 
-    // The observer can only reach items rendered by the live SliverAnimatedList.
-    // If the target is in the history region (above the center), collapse history
-    // back into the live list first so it becomes reachable, then wait a frame
-    // for layout. This is a deliberate jump, so the resulting shift is fine.
-    if (_isHistory(index)) {
-      _collapseHistoryIntoList();
-      await WidgetsBinding.instance.endOfFrame;
-      if (!mounted) return;
-      // A queued operation (e.g. a load-older) could have run during the awaited
-      // frame, shifting indices and re-splitting history. Bail rather than
-      // scroll to a stale/wrong target; the caller can retry by message id.
-      if (index >= _oldList.length || _isHistory(index)) {
-        return;
-      }
-    }
-
-    // If the context is null, it means the list is not
-    // in the tree, and there's nothing to scroll to.
-    if (_listKey.currentContext == null) {
+    if (!widget.reversed) {
+      await _scrollToIndexWithPivot(
+        index,
+        duration: duration,
+        curve: curve,
+        alignment: alignment,
+        offset: offset,
+      );
       return;
     }
 
+    // Reversed lists keep the scrollview_observer path (its native alignment
+    // behaviour is what the reversed onStartReached anchor relies on).
+    if (_listKey.currentContext == null) return;
     final visualIndex = _contentToBelow(index);
-
-    // scrollview_observer's `alignment` is item-relative (it offsets by
-    // childSize * alignment), so on its own it cannot place a message at a
-    // viewport fraction — passing 0.5 for a tall message scrolls it far past
-    // the top. Translate the documented viewport-relative alignment
-    // (0 = top, 0.5 = middle, 1 = bottom) into the observer's `offset`: pushing
-    // the target down by alignment * viewportExtent, combined with the observer's
-    // own childSize * alignment term, lands the item's center at that fraction
-    // regardless of its height. Only for non-reversed lists; the reversed
-    // anchor path relies on the observer's native alignment behaviour.
-    final double resolvedOffset = (!widget.reversed &&
-            _scrollController.hasClients)
-        ? offset + alignment * _scrollController.position.viewportDimension
-        : offset;
-
     try {
       if (duration == Duration.zero) {
         await _observerController.jumpTo(
           index: visualIndex,
           alignment: alignment,
-          offset: (targetOffset) => resolvedOffset,
+          offset: (targetOffset) => offset,
           renderSliverType: ObserverRenderSliverType.list,
         );
       } else {
@@ -1118,12 +1095,57 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
           duration: duration,
           curve: curve,
           alignment: alignment,
-          offset: (targetOffset) => resolvedOffset,
+          offset: (targetOffset) => offset,
           renderSliverType: ObserverRenderSliverType.list,
         );
       }
     } catch (e) {
       rethrow;
+    }
+  }
+
+  /// Deterministic, observer-free scroll-to-index for non-reversed lists.
+  ///
+  /// scrollview_observer's gradual scroll-to-an-offscreen-index is unreliable
+  /// on the center-pivot CustomScrollView (especially right after a setMessages
+  /// rebuild): it overshoots / lands on the wrong item. Instead we use the
+  /// pivot itself: make [index] the first item of the live region, which puts
+  /// its leading edge at scroll offset 0 (the center) — an EXACT position with
+  /// no measurement. Then scroll up by `alignment * viewportExtent` so the
+  /// message lands at that fraction of the viewport (0 = top, 0.5 = middle,
+  /// 1 = bottom), clamped to whatever history exists above it.
+  Future<void> _scrollToIndexWithPivot(
+    int index, {
+    required Duration duration,
+    required Curve curve,
+    required double alignment,
+    required double offset,
+  }) async {
+    // Re-pivot so the target heads the live region. A fresh key forces the
+    // SliverAnimatedList to rebuild with the new initialItemCount.
+    _centerIndex = index;
+    _listKey = GlobalKey<SliverAnimatedListState>();
+    if (mounted) setState(() {});
+
+    // Let the new layout settle so min/maxScrollExtent are valid.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_scrollController.hasClients) return;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_scrollController.hasClients) return;
+
+    final position = _scrollController.position;
+    // Target leading edge is at scroll offset 0; scroll up (negative) by
+    // alignment * viewport to bring it down to that viewport fraction.
+    final double desired = -(alignment * position.viewportDimension) - offset;
+    final double target = desired.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+
+    if (duration == Duration.zero) {
+      _scrollController.jumpTo(target);
+    } else {
+      await _scrollController.animateTo(target, duration: duration, curve: curve);
     }
   }
 
@@ -1394,19 +1416,6 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   /// center) and is therefore NOT rendered by the SliverAnimatedList.
   bool _isHistory(int contentIndex) =>
       !widget.reversed && contentIndex < _centerIndex;
-
-  /// Collapses the history region back into the live list by resetting the pivot
-  /// to 0 and giving the [SliverAnimatedList] a fresh key, so it rebuilds from
-  /// scratch over the full `_oldList` (its `initialItemCount` becomes the full
-  /// length). Avoids the build-then-discard churn of re-inserting every history
-  /// item one frame before a diff removes them. The new list is only realized on
-  /// the next build, so callers that need to act on it must await a frame.
-  void _collapseHistoryIntoList() {
-    if (widget.reversed || _centerIndex <= 0) return;
-    _centerIndex = 0;
-    _listKey = GlobalKey<SliverAnimatedListState>();
-    if (mounted) setState(() {});
-  }
 
   void _onDiffUpdate(diffutil.DataDiffUpdate<Message> update) {
     update.when<void>(
