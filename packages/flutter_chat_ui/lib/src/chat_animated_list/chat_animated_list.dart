@@ -802,51 +802,22 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       // Prevent multiple triggers during one scroll gesture.
       _paginationShouldTrigger = false;
 
-      // Capture the current scroll offset and total scrollable extent BEFORE
-      // anything is added.  When older messages are prepended at position 0,
-      // maxScrollExtent grows by exactly the height of the new items.
-      // Restoring offset = preLoadOffset + delta keeps every visible item at
-      // the same pixel position — no seeking, one atomic jumpTo.
-      double? preLoadOffset;
-      double? preLoadMaxExtent;
-      if (!widget.reversed && _scrollController.hasClients) {
-        preLoadOffset = _scrollController.offset;
-        preLoadMaxExtent = _scrollController.position.maxScrollExtent;
-      }
-
       // Ensure mounted before using context or calling async widget callbacks
       if (!mounted) return;
 
       // Show loading indicator.
       context.read<LoadMoreNotifier>().setLoading(true);
 
-      // Load older messages.
+      // Load older messages. _onInsertedAll handles scroll preservation.
       await widget.onEndReached!();
 
       // Ensure mounted after await, as onEndReached might unmount the widget
       if (!mounted) return;
 
-      // Frame N+1: collapse the loading indicator so its height change is
-      // absorbed into the layout before we measure the new maxScrollExtent.
+      // Hide the loading indicator once items are inserted.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         context.read<LoadMoreNotifier>().setLoading(false);
-
-        // Frame N+2: indicator is gone, all new items are laid out.
-        // maxScrollExtent - preLoadMaxExtent == total height of prepended items.
-        // Shifting offset by the same delta keeps the viewport anchored.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted || !_scrollController.hasClients) return;
-          if (!widget.reversed &&
-              preLoadOffset != null &&
-              preLoadMaxExtent != null) {
-            final delta =
-                _scrollController.position.maxScrollExtent - preLoadMaxExtent;
-            if (delta > 0) {
-              _scrollController.jumpTo(preLoadOffset + delta);
-            }
-          }
-        });
       });
     }
   }
@@ -1083,6 +1054,25 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       _userHasScrolled = false;
     }
 
+    // Freeze scroll: capture offset + maxScrollExtent BEFORE insertAllItems so
+    // we can restore them one frame later. Only fires when prepending (position 0)
+    // in a non-reversed list with existing content — i.e. loading older messages.
+    // The indicator's height is present in BOTH measurements and cancels out.
+    // Skip during _isReplacingMessages (setMessages diff) and the initial load
+    // (list empty before this call).
+    final bool shouldFreeze = !widget.reversed &&
+        position == 0 &&
+        _oldList.isNotEmpty &&
+        !_isReplacingMessages &&
+        _scrollController.hasClients &&
+        _scrollController.positions.isNotEmpty;
+    double? frozenOffset;
+    double? frozenMaxExtent;
+    if (shouldFreeze) {
+      frozenOffset = _scrollController.offset;
+      frozenMaxExtent = _scrollController.position.maxScrollExtent;
+    }
+
     final Duration duration;
     // Determine the animation duration for inserting the item.
     // - For reversed lists, always use the specified insert animation duration.
@@ -1135,6 +1125,21 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     // come from pagination (load older / load newer / missing messages) and
     // the caller owns the resulting scroll position. Auto-scroll-to-end only
     // makes sense for single real-time messages (_onInserted).
+
+    // Unfreeze scroll: one frame later the new items are laid out and
+    // maxScrollExtent reflects the prepended content. delta == new items height
+    // (indicator height cancels since it was in both measurements). A single
+    // jumpTo restores the viewport to the exact pixel position the user had.
+    if (frozenOffset != null && frozenMaxExtent != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        final delta =
+            _scrollController.position.maxScrollExtent - frozenMaxExtent!;
+        if (delta > 0) {
+          _scrollController.jumpTo(frozenOffset! + delta);
+        }
+      });
+    }
   }
 
   void _onRemoved(final int position, final Message data) {
