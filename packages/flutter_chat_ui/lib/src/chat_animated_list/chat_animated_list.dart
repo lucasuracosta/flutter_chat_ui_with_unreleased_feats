@@ -219,6 +219,13 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   // ensuring onStartReached only fires once per user scroll gesture.
   bool _startPaginationShouldTrigger = false;
 
+  // True while processing a ChatOperation.set (setMessages replacement).
+  // _scrollToEnd is suppressed during this window so that bulk inserts from
+  // a setMessages diff do not trigger an auto-scroll-to-bottom that races
+  // against the caller's own scroll intent (e.g. scrollToMessage after
+  // loadMessagesAround).
+  bool _isReplacingMessages = false;
+
   @override
   void initState() {
     super.initState();
@@ -650,6 +657,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   }
 
   void _scrollToEnd(Message data) {
+    if (_isReplacingMessages) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients || !mounted) return;
 
@@ -844,34 +852,37 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       // Ensure mounted after await, as onEndReached might unmount the widget
       if (!mounted) return;
 
-      // Wait for the next frame for UI updates.
+      // Frame N+1: collapse the loading indicator so its height change is
+      // absorbed into the layout before we compute the anchor jump offset.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!_scrollController.hasClients || !mounted) return;
+        if (!mounted) return;
+        context.read<LoadMoreNotifier>().setLoading(false);
 
-        final notifier = context.read<LoadMoreNotifier>();
+        // Frame N+2: new items are fully measured and the indicator is gone —
+        // now it is safe to jump to the anchor without pixel-offset error.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!_scrollController.hasClients || !mounted) return;
 
-        // --- Scroll Anchoring Action: Only for non-reversed lists ---
-        if (!widget.reversed) {
-          // initialMessageCount will be non-null here if !widget.reversed
-          final didAddMessages = _oldList.length > initialMessagesCount!;
-          if (didAddMessages && anchorMessageId != null) {
-            final newIndex = _oldList.indexWhere(
-              (m) => m.id == anchorMessageId,
-            );
-            if (newIndex != -1) {
-              _scrollToIndex(
-                newIndex,
-                duration: Duration.zero, // Jump immediately
-                alignment: 0, // Align to the top edge
-                offset: 0, // Keep item top edge aligned with viewport top edge
+          // --- Scroll Anchoring Action: Only for non-reversed lists ---
+          if (!widget.reversed) {
+            // initialMessageCount will be non-null here if !widget.reversed
+            final didAddMessages = _oldList.length > initialMessagesCount!;
+            if (didAddMessages && anchorMessageId != null) {
+              final newIndex = _oldList.indexWhere(
+                (m) => m.id == anchorMessageId,
               );
+              if (newIndex != -1) {
+                _scrollToIndex(
+                  newIndex,
+                  duration: Duration.zero, // Jump immediately
+                  alignment: 0, // Align to the top edge
+                  offset: 0, // Keep item top edge aligned with viewport top edge
+                );
+              }
             }
           }
-        }
-        // --- End Scroll Anchoring Action ---
-
-        // Hide loading indicator.
-        notifier.setLoading(false);
+          // --- End Scroll Anchoring Action ---
+        });
       });
     }
   }
@@ -1317,9 +1328,11 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
                     )
                     .getUpdatesWithData();
 
+            _isReplacingMessages = true;
             for (final update in updates) {
               _onDiffUpdate(update);
             }
+            _isReplacingMessages = false;
             break;
           case ChatOperationType.insertAll:
             assert(
