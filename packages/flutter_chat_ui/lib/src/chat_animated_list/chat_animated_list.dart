@@ -225,6 +225,20 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   // This flag is used to determine if we already adjusted the initial
   // scroll position (so we can see latest messages when we enter chat)
   late bool _needsInitialScrollPositionAdjustment;
+
+  // --- Initial open: hide-until-stable (non-reversed jump mode) ---
+  // On open, a forward list must jump to maxScrollExtent, but maxScrollExtent is
+  // a LAZY ESTIMATE computed from the few laid-out (top) items; as the list pins
+  // to the bottom and the real items lay out, the estimate collapses (observed
+  // ~5800 -> ~4080), and the view visibly chases the shrinking bottom — the
+  // "bounce". We keep the content invisible while a periodic pin drives the
+  // bottom items to lay out and the estimate to STABILISE, then reveal at the
+  // settled bottom. Bounded by a tick cap + fallback timer so it can never hang.
+  bool _initialScrollSettled = false;
+  Timer? _initialPinTimer;
+  double _lastPinnedMax = -1;
+  int _stablePinTicks = 0;
+  int _totalPinTicks = 0;
   MessageID _lastInsertedMessageId = '';
   // Controls whether pagination should be triggered when scrolling to the top.
   // Set to true when user scrolls up, and false after pagination is triggered.
@@ -293,6 +307,12 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       }
     }
 
+    // Hide content only while an initial jump-to-bottom is pending. The pin
+    // (started once the first page arrives) is bounded by its own tick cap, so
+    // no initState-relative timer is needed — and one would be wrong, since the
+    // first page can arrive after an arbitrary network delay.
+    _initialScrollSettled = !_needsInitialScrollPositionAdjustment;
+
     // If controller supports ScrollToMessageMixin, attach the scroll methods
     if (_chatController is ScrollToMessageMixin) {
       (_chatController as ScrollToMessageMixin).attachScrollMethods(
@@ -339,6 +359,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   void dispose() {
     _oldListEmptyNotifier.dispose();
     _scrollToBottomShowTimer?.cancel();
+    _initialPinTimer?.cancel();
     _scrollToBottomController.dispose();
     _scrollAnimationController.removeListener(_linkAnimationToScroll);
     _scrollAnimationController.dispose();
@@ -521,13 +542,14 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       }
     }
 
+    // Hide the content while the initial jump-to-bottom + extent stabilisation
+    // runs, so the lazy maxScrollExtent correction isn't visible as a bounce.
+    final bool hideForInitialScroll =
+        !widget.reversed && !_initialScrollSettled && _oldList.isNotEmpty;
+
     return NotificationListener<Notification>(
       onNotification: (notification) {
         if (notification is ScrollMetricsNotification) {
-          // ignore: avoid_print
-          print('📜CS metrics off=${notification.metrics.pixels.toStringAsFixed(1)} '
-              'max=${notification.metrics.maxScrollExtent.toStringAsFixed(1)} '
-              'min=${notification.metrics.minScrollExtent.toStringAsFixed(1)}');
           // Handle initial scroll to bottom so you see latest messages
           _adjustInitialScrollPosition();
           _handleToggleScrollToBottom();
@@ -567,28 +589,34 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       },
       child: Stack(
         children: [
-          SliverViewObserver(
-            controller: _observerController,
-            sliverContexts: () {
-              // Using the key's context ensures we always have the latest, valid
-              // context for the SliverAnimatedList, or null if it's not built.
-              // This is safer than storing a BuildContext.
-              final context = _listKey.currentContext;
-              return [if (context != null) context];
-            },
-            child: CustomScrollView(
-              controller: _scrollController,
-              reverse: widget.reversed,
-              // Non-reversed lists pivot around the center sliver so prepended
-              // history grows into negative offset (jump-free). anchor: 0 keeps
-              // offset 0 at the top of the viewport (top-aligned short chats).
-              center: widget.reversed ? null : _centerKey,
-              anchor: 0,
-              physics: widget.physics,
-              keyboardDismissBehavior:
-                  widget.keyboardDismissBehavior ??
-                  ScrollViewKeyboardDismissBehavior.manual,
-              slivers: buildSlivers(), // Use the new helper method
+          Opacity(
+            opacity: hideForInitialScroll ? 0.0 : 1.0,
+            child: IgnorePointer(
+              ignoring: hideForInitialScroll,
+              child: SliverViewObserver(
+                controller: _observerController,
+                sliverContexts: () {
+                  // Using the key's context ensures we always have the latest, valid
+                  // context for the SliverAnimatedList, or null if it's not built.
+                  // This is safer than storing a BuildContext.
+                  final context = _listKey.currentContext;
+                  return [if (context != null) context];
+                },
+                child: CustomScrollView(
+                  controller: _scrollController,
+                  reverse: widget.reversed,
+                  // Non-reversed lists pivot around the center sliver so prepended
+                  // history grows into negative offset (jump-free). anchor: 0 keeps
+                  // offset 0 at the top of the viewport (top-aligned short chats).
+                  center: widget.reversed ? null : _centerKey,
+                  anchor: 0,
+                  physics: widget.physics,
+                  keyboardDismissBehavior:
+                      widget.keyboardDismissBehavior ??
+                      ScrollViewKeyboardDismissBehavior.manual,
+                  slivers: buildSlivers(), // Use the new helper method
+                ),
+              ),
             ),
           ),
           builders.scrollToBottomBuilder?.call(
@@ -716,10 +744,6 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     if (!widget.reversed &&
         widget.shouldScrollToEndWhenAtBottom == true &&
         !_userHasScrolled) {
-      // ignore: avoid_print
-      print('📜CS subsequentScrollToEnd JUMP-to-end '
-          'off=${_scrollController.offset.toStringAsFixed(1)} '
-          'max=${_scrollController.position.maxScrollExtent.toStringAsFixed(1)}');
       if (widget.scrollToEndAnimationDuration == Duration.zero) {
         _scrollController.jumpTo(_chatEndScrollPosition);
       } else {
@@ -767,8 +791,6 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
 
   void _scrollToEnd(Message data) {
     if (_isReplacingMessages) return;
-    // ignore: avoid_print
-    print('📜CS scrollToEnd id=${data.id} userScrolled=$_userHasScrolled');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients || !mounted) return;
 
@@ -785,47 +807,86 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   }
 
   void _adjustInitialScrollPosition() {
-    // If the chat list is reversed, it begins at the bottom,
-    // so no adjustment to the initial scroll position is necessary.
-    if (widget.reversed) {
-      return;
-    }
+    // Reversed lists start at the bottom already; nothing to do.
+    if (widget.reversed || !_needsInitialScrollPositionAdjustment) return;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients || !mounted) return;
-
-      // If the list is empty there is no need to adjust the initial scroll position.
-      if (_oldList.isEmpty) {
-        _needsInitialScrollPositionAdjustment = false;
-        return;
-      }
-
-      if (_needsInitialScrollPositionAdjustment) {
-        // Flutter might return a bunch of 0 values for maxScrollExtent,
-        // we need to ignore those.
-        if (_scrollController.position.maxScrollExtent == 0) {
-          return;
-        }
-
-        // jump until pixels == maxScrollExtent, i.e. end of the list
-        _diagAdjustCount++;
-        // ignore: avoid_print
-        print('📜CS adjust #$_diagAdjustCount '
-            'off=${_scrollController.offset.toStringAsFixed(1)} '
-            'max=${_scrollController.position.maxScrollExtent.toStringAsFixed(1)} '
-            'min=${_scrollController.position.minScrollExtent.toStringAsFixed(1)} '
-            '${_scrollController.offset == _chatEndScrollPosition ? "SETTLE" : "JUMP"}');
-        if (_scrollController.offset == _chatEndScrollPosition) {
-          _needsInitialScrollPositionAdjustment = false;
-        } else {
-          _scrollController.jumpTo(_chatEndScrollPosition);
-        }
+      if (!_needsInitialScrollPositionAdjustment) return;
+      // Wait for the first page to arrive; keep the flag so we still jump once
+      // it does (do NOT clear it, or the chat would open at the top).
+      if (_oldList.isEmpty) return;
+      // Start the pin once we have content. The pin handles both a scrollable
+      // chat (jump to bottom, wait for the extent to stabilise) and a short
+      // chat that fits (maxScrollExtent stays 0 -> reveal top-aligned).
+      if (_initialPinTimer == null) {
+        _startInitialPin();
       }
     });
   }
 
-  // Diagnostic counter for the initial scroll-to-bottom loop.
-  int _diagAdjustCount = 0;
+  /// Pins the viewport to the bottom on a periodic tick so the lazy list lays
+  /// out its bottom items and [ScrollPosition.maxScrollExtent] converges from
+  /// its initial (over-)estimate to the real value. The content stays hidden
+  /// (see `_initialScrollSettled`) until the extent is STABLE for a few ticks,
+  /// so the user never sees the estimate-correction "bounce". Bounded by a hard
+  /// tick cap (~640ms) so it always reveals.
+  void _startInitialPin() {
+    _initialPinTimer =
+        Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      if (!mounted || !_scrollController.hasClients) {
+        timer.cancel();
+        _initialPinTimer = null;
+        return;
+      }
+      final position = _scrollController.position;
+      final max = position.maxScrollExtent;
+      _totalPinTicks++;
+
+      // Snap exactly to the bottom each tick. This both drives the bottom items
+      // to lay out (refining the extent estimate) AND snaps back instantly when
+      // the estimate shrinks below the current offset (which would otherwise
+      // leave us overscrolled and slowly settling — a visible bounce).
+      if (max > 0 && (position.pixels - max).abs() > 0.5) {
+        _scrollController.jumpTo(max);
+      }
+
+      // Has the content height stopped changing?
+      if ((max - _lastPinnedMax).abs() < 1.0) {
+        _stablePinTicks++;
+      } else {
+        _stablePinTicks = 0;
+        _lastPinnedMax = max;
+      }
+
+      // Settle once the extent is stable and we're pinned at the bottom, or
+      // after a hard cap (~640ms) so a never-settling chat still reveals.
+      final atBottom = max == 0 || (position.pixels - max).abs() < 1.0;
+      final stableAtBottom = _stablePinTicks >= 4 && atBottom;
+      if (stableAtBottom || _totalPinTicks >= 40) {
+        timer.cancel();
+        _initialPinTimer = null;
+        _finishInitialScroll();
+      }
+    });
+  }
+
+  /// Stops the initial-open adjustment, snaps to the bottom one last time, and
+  /// reveals the content.
+  void _finishInitialScroll() {
+    _needsInitialScrollPositionAdjustment = false;
+    _initialPinTimer?.cancel();
+    _initialPinTimer = null;
+    if (_scrollController.hasClients) {
+      final max = _scrollController.position.maxScrollExtent;
+      if (max > 0 && _scrollController.offset < max - 0.5) {
+        _scrollController.jumpTo(max);
+      }
+    }
+    if (mounted && !_initialScrollSettled) {
+      setState(() => _initialScrollSettled = true);
+    }
+  }
 
   void _handleScrollToBottom() {
     // Trigger callback immediately when button is clicked
