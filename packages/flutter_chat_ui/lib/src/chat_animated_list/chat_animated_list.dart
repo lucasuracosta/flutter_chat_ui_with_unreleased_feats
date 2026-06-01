@@ -1054,18 +1054,21 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       _userHasScrolled = false;
     }
 
-    // Freeze scroll: when prepending older messages (position 0, non-reversed,
-    // non-empty list, not a replace-diff), tell the scroll controller to absorb
-    // any growth in maxScrollExtent via correctBy() during the layout pass.
-    // correctBy() adjusts _pixels before paint — zero visual shift, no jumpTo.
-    // Skip for initial load (list empty) and setMessages diffs.
-    final bool shouldFreeze = !widget.reversed &&
+    // Anchor scroll: when prepending older messages (position 0, non-reversed,
+    // non-empty list, not a replace-diff), arm a ONE-SHOT scroll correction.
+    // It snapshots the current extent/offset now, then on the next layout pass
+    // (inside applyContentDimensions, before paint) shifts pixels by exactly the
+    // growth so the viewport stays anchored — zero visual shift, no jumpTo, no
+    // per-pass correction loop. Skip for initial load (list empty) and
+    // setMessages diffs.
+    final bool shouldAnchor = !widget.reversed &&
         position == 0 &&
         _oldList.isNotEmpty &&
         !_isReplacingMessages &&
         _scrollController is _PrependAwareScrollController;
-    if (shouldFreeze) {
-      (_scrollController as _PrependAwareScrollController).freeze();
+    if (shouldAnchor) {
+      (_scrollController as _PrependAwareScrollController)
+          .armPrependCorrection();
     }
 
     final Duration duration;
@@ -1121,12 +1124,14 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     // the caller owns the resulting scroll position. Auto-scroll-to-end only
     // makes sense for single real-time messages (_onInserted).
 
-    // Unfreeze after the next frame — by then the new items are fully laid out
-    // and correctBy() has already absorbed the growth in-place.
-    if (shouldFreeze) {
+    // Safety: if for any reason the correction never fired (e.g. growth fell
+    // below the layout tolerance so applyContentDimensions skipped it), disarm
+    // it after this frame so it can never apply to an unrelated later change.
+    if (shouldAnchor) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        (_scrollController as _PrependAwareScrollController).unfreeze();
+        (_scrollController as _PrependAwareScrollController)
+            .disarmPrependCorrection();
       });
     }
   }
@@ -1318,17 +1323,35 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   }
 }
 
-/// A [ScrollController] that can freeze the viewport during content prepends.
+/// A [ScrollController] that keeps the viewport anchored when older content is
+/// prepended to a non-reversed list.
 ///
-/// When [freeze] is called, any growth in [ScrollPosition.maxScrollExtent]
-/// detected inside [applyContentDimensions] is absorbed via [correctBy] —
-/// adjusting [pixels] in the same layout pass, before paint. The viewport
-/// never moves visually; no post-frame jumpTo is needed.
+/// Call [armPrependCorrection] immediately BEFORE inserting items at the top.
+/// It snapshots the current [ScrollPosition.maxScrollExtent] and
+/// [ScrollPosition.pixels]. On the next layout pass, the position consumes that
+/// snapshot inside [applyContentDimensions] (via [correctForNewDimensions]) and
+/// shifts [pixels] by the exact growth in extent, so the content the user was
+/// looking at stays fixed. The correction happens before paint (no flash) and
+/// fires exactly ONCE (no relayout loop, no fighting an active fling).
 class _PrependAwareScrollController extends ScrollController {
-  bool _frozen = false;
+  // One-shot correction state. Armed right before a prepend; consumed by the
+  // position on the first subsequent layout pass.
+  bool _correctionArmed = false;
+  double _baselineMaxExtent = 0;
+  double _baselinePixels = 0;
 
-  void freeze() => _frozen = true;
-  void unfreeze() => _frozen = false;
+  /// Arms a one-shot scroll correction to absorb the height of content about to
+  /// be prepended. Must be called BEFORE the items are inserted, while the
+  /// metrics still reflect the old content.
+  void armPrependCorrection() {
+    if (!hasClients) return;
+    _correctionArmed = true;
+    _baselineMaxExtent = position.maxScrollExtent;
+    _baselinePixels = position.pixels;
+  }
+
+  /// Disarms a pending correction that never fired (safety net).
+  void disarmPrependCorrection() => _correctionArmed = false;
 
   @override
   ScrollPosition createScrollPosition(
@@ -1355,28 +1378,33 @@ class _PrependAwareScrollPosition extends ScrollPositionWithSingleContext {
 
   final _PrependAwareScrollController _controller;
 
-  /// Called by [applyContentDimensions] when dimensions change.
-  /// [oldPosition] is the metrics snapshot from before this layout pass;
+  /// Called by [applyContentDimensions] when the scroll extents change.
   /// [newPosition] reflects the new extents with [pixels] still at the
   /// pre-correction value.
   ///
-  /// When frozen, content grew because older messages were prepended.
-  /// We shift pixels by the exact growth so the viewport stays anchored,
-  /// then return false to trigger an immediate relayout from the new offset.
+  /// When a prepend correction is armed, content grew because older messages
+  /// were inserted above the viewport. We shift pixels by the exact growth
+  /// (new extent minus the snapshot taken before the insert) so the viewport
+  /// stays anchored, then return false to force a single immediate relayout
+  /// from the corrected offset. The armed flag is consumed first so this can
+  /// only ever run once — otherwise the lazy list's offset-dependent
+  /// maxScrollExtent estimate would feed back into another correction and trip
+  /// "RenderViewport exceeded its maximum number of layout cycles".
   @override
   bool correctForNewDimensions(
     ScrollMetrics oldPosition,
     ScrollMetrics newPosition,
   ) {
-    if (_controller._frozen) {
+    if (_controller._correctionArmed) {
+      _controller._correctionArmed = false; // consume — strictly one-shot
       final growth =
-          newPosition.maxScrollExtent - oldPosition.maxScrollExtent;
+          newPosition.maxScrollExtent - _controller._baselineMaxExtent;
       if (growth > 0) {
         // correctPixels (not correctBy) — does NOT set
         // _didChangeViewportDimensionOrReceiveCorrection, which would
         // trip the assert inside applyContentDimensions.
-        correctPixels(oldPosition.pixels + growth);
-        return false; // force relayout from the corrected offset
+        correctPixels(_controller._baselinePixels + growth);
+        return false; // relayout once from the corrected offset, same frame
       }
     }
     return super.correctForNewDimensions(oldPosition, newPosition);
