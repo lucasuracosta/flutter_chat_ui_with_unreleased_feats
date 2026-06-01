@@ -230,7 +230,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   void initState() {
     super.initState();
     _chatController = context.read<ChatController>();
-    _scrollController = widget.scrollController ?? ScrollController();
+    _scrollController = widget.scrollController ?? _PrependAwareScrollController();
     _observerController = SliverObserverController(
       controller: _scrollController,
     )..cacheJumpIndexOffset = false;
@@ -1054,23 +1054,18 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       _userHasScrolled = false;
     }
 
-    // Freeze scroll: capture offset + maxScrollExtent BEFORE insertAllItems so
-    // we can restore them one frame later. Only fires when prepending (position 0)
-    // in a non-reversed list with existing content — i.e. loading older messages.
-    // The indicator's height is present in BOTH measurements and cancels out.
-    // Skip during _isReplacingMessages (setMessages diff) and the initial load
-    // (list empty before this call).
+    // Freeze scroll: when prepending older messages (position 0, non-reversed,
+    // non-empty list, not a replace-diff), tell the scroll controller to absorb
+    // any growth in maxScrollExtent via correctBy() during the layout pass.
+    // correctBy() adjusts _pixels before paint — zero visual shift, no jumpTo.
+    // Skip for initial load (list empty) and setMessages diffs.
     final bool shouldFreeze = !widget.reversed &&
         position == 0 &&
         _oldList.isNotEmpty &&
         !_isReplacingMessages &&
-        _scrollController.hasClients &&
-        _scrollController.positions.isNotEmpty;
-    double? frozenOffset;
-    double? frozenMaxExtent;
+        _scrollController is _PrependAwareScrollController;
     if (shouldFreeze) {
-      frozenOffset = _scrollController.offset;
-      frozenMaxExtent = _scrollController.position.maxScrollExtent;
+      (_scrollController as _PrependAwareScrollController).freeze();
     }
 
     final Duration duration;
@@ -1126,18 +1121,12 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     // the caller owns the resulting scroll position. Auto-scroll-to-end only
     // makes sense for single real-time messages (_onInserted).
 
-    // Unfreeze scroll: one frame later the new items are laid out and
-    // maxScrollExtent reflects the prepended content. delta == new items height
-    // (indicator height cancels since it was in both measurements). A single
-    // jumpTo restores the viewport to the exact pixel position the user had.
-    if (frozenOffset != null && frozenMaxExtent != null) {
+    // Unfreeze after the next frame — by then the new items are fully laid out
+    // and correctBy() has already absorbed the growth in-place.
+    if (shouldFreeze) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scrollController.hasClients) return;
-        final delta =
-            _scrollController.position.maxScrollExtent - frozenMaxExtent!;
-        if (delta > 0) {
-          _scrollController.jumpTo(frozenOffset! + delta);
-        }
+        if (!mounted) return;
+        (_scrollController as _PrependAwareScrollController).unfreeze();
       });
     }
   }
@@ -1326,5 +1315,56 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       }
     }
     _isProcessingOperations = false;
+  }
+}
+
+/// A [ScrollController] that can freeze the viewport during content prepends.
+///
+/// When [freeze] is called, any growth in [ScrollPosition.maxScrollExtent]
+/// detected inside [applyContentDimensions] is absorbed via [correctBy] —
+/// adjusting [pixels] in the same layout pass, before paint. The viewport
+/// never moves visually; no post-frame jumpTo is needed.
+class _PrependAwareScrollController extends ScrollController {
+  bool _frozen = false;
+
+  void freeze() => _frozen = true;
+  void unfreeze() => _frozen = false;
+
+  @override
+  ScrollPosition createScrollPosition(
+    ScrollPhysics physics,
+    ScrollContext context,
+    ScrollPosition? oldPosition,
+  ) {
+    return _PrependAwareScrollPosition(
+      controller: this,
+      physics: physics,
+      context: context,
+      oldPosition: oldPosition,
+    );
+  }
+}
+
+class _PrependAwareScrollPosition extends ScrollPositionWithSingleContext {
+  _PrependAwareScrollPosition({
+    required _PrependAwareScrollController controller,
+    required super.physics,
+    required super.context,
+    super.oldPosition,
+  }) : _controller = controller;
+
+  final _PrependAwareScrollController _controller;
+  double _previousMaxScrollExtent = 0;
+
+  @override
+  bool applyContentDimensions(double minScrollExtent, double maxScrollExtent) {
+    if (_controller._frozen && hasPixels) {
+      final growth = maxScrollExtent - _previousMaxScrollExtent;
+      if (growth > 0) {
+        correctBy(growth);
+      }
+    }
+    _previousMaxScrollExtent = maxScrollExtent;
+    return super.applyContentDimensions(minScrollExtent, maxScrollExtent);
   }
 }
