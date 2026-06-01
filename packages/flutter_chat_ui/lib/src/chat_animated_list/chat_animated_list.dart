@@ -1167,17 +1167,10 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       duration: duration,
     );
 
-    // Only auto-scroll to end when the new messages were appended at the tail
-    // of the list (newer messages). When prepending at position 0 (older
-    // messages loaded via pagination), the anchor logic in _handlePagination
-    // owns scroll restoration — calling _scrollToEnd would fight it and jump
-    // the user back to the bottom.
-    final bool appendedAtEnd =
-        position + messagesToInsert.length == _oldList.length;
-    if (appendedAtEnd) {
-      _lastInsertedMessageId = messagesToInsert.last.id;
-      _scrollToEnd(messagesToInsert.last);
-    }
+    // _scrollToEnd is intentionally NOT called here. Bulk insertions always
+    // come from pagination (load older / load newer / missing messages) and
+    // the caller owns the resulting scroll position. Auto-scroll-to-end only
+    // makes sense for single real-time messages (_onInserted).
   }
 
   void _onRemoved(final int position, final Message data) {
