@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:cross_cache/cross_cache.dart';
 import 'package:flutter/material.dart';
@@ -158,14 +160,10 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
   void initState() {
     super.initState();
 
-    final height = widget.message.height;
-    final width = widget.message.width;
-    if (height != null && width != null && height > 0 && width > 0) {
-      _aspectRatio = width / height;
-    } else {
-      _aspectRatio = 9 / 16;
-    }
+    // Default aspect ratio, will be updated once thumbnail is available
+    _aspectRatio = 9 / 16;
 
+    // Use thumbhash for initial placeholder and approximate aspect ratio
     if (widget.message.thumbhash?.isNotEmpty ?? false) {
       final thumbhashBytes = base64.decode(
         base64.normalize(widget.message.thumbhash!),
@@ -176,6 +174,13 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
       final rgbaImage = thumbHashToRGBA(thumbhashBytes);
       final bmp = rgbaToBmp(rgbaImage);
       _placeholderProvider = MemoryImage(bmp);
+    } else {
+      // Fall back to message dimensions if no thumbhash (may not be orientation-corrected)
+      final height = widget.message.height;
+      final width = widget.message.width;
+      if (height != null && width != null && height > 0 && width > 0) {
+        _aspectRatio = width / height;
+      }
     }
 
     try {
@@ -184,8 +189,14 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
       _chatController = null;
     }
 
-    // Only generate thumbnail if not already in metadata
-    if (widget.message.metadata?['thumbnail'] is! Uint8List) {
+    // If thumbnail already exists in metadata, update aspect ratio from it
+    // (thumbnail will have correct orientation from EXIF data)
+    if (widget.message.metadata?['thumbnail'] is Uint8List) {
+      _updateAspectRatioFromThumbnail(
+        widget.message.metadata!['thumbnail'] as Uint8List,
+      );
+    } else {
+      // Generate thumbnail if not already in metadata
       try {
         _generateImageCover();
       } catch (e) {
@@ -209,6 +220,29 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
     }
   }
 
+  /// Decodes the thumbnail bytes and updates the aspect ratio based on
+  /// the actual image dimensions. This ensures correct orientation since
+  /// the thumbnail will have EXIF rotation already applied.
+  Future<void> _updateAspectRatioFromThumbnail(Uint8List thumbnailBytes) async {
+    try {
+      final codec = await ui.instantiateImageCodec(thumbnailBytes);
+      final frame = await codec.getNextFrame();
+      final image = frame.image;
+
+      if (mounted && image.width > 0 && image.height > 0) {
+        setState(() {
+          _aspectRatio = image.width / image.height;
+        });
+      }
+
+      image.dispose();
+    } catch (e) {
+      debugPrint(
+        'Could not decode thumbnail for aspect ratio: ${e.toString()}',
+      );
+    }
+  }
+
   Future<void> _generateImageCover() async {
     if (widget.highResThumbnailProviderBuilder != null) {
       final provider = await widget.highResThumbnailProviderBuilder!();
@@ -227,6 +261,9 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
       // Try to get cached thumbnail first
       final cachedThumbnail = await crossCache.get(cacheKey);
 
+      // Update aspect ratio from thumbnail (has correct EXIF orientation)
+      await _updateAspectRatioFromThumbnail(cachedThumbnail);
+
       // Only update state if metadata doesn't already have thumbnail
       if (mounted && widget.message.metadata?['thumbnail'] is! Uint8List) {
         setState(() {
@@ -243,6 +280,7 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
     }
 
     // Generate thumbnail using video_thumbnail
+    // The generated thumbnail will have correct orientation applied
     final coverImageBytes = await VideoThumbnail.thumbnailData(
       video: widget.message.source,
       imageFormat: ImageFormat.WEBP,
@@ -257,6 +295,9 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
       } catch (e) {
         debugPrint('Could not cache video thumbnail: ${e.toString()}');
       }
+
+      // Update aspect ratio from thumbnail (has correct EXIF orientation)
+      await _updateAspectRatioFromThumbnail(coverImageBytes);
 
       // Only update state if metadata doesn't already have thumbnail
       if (mounted && widget.message.metadata?['thumbnail'] is! Uint8List) {
@@ -311,7 +352,23 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
 
     Widget useHero(bool enabled, {required Widget child}) {
       if (enabled) {
-        return Hero(tag: widget.message.id, child: child);
+        return Hero(
+          tag: widget.message.id,
+          flightShuttleBuilder: (
+            BuildContext flightContext,
+            Animation<double> animation,
+            HeroFlightDirection flightDirection,
+            BuildContext fromHeroContext,
+            BuildContext toHeroContext,
+          ) {
+            final dynamic thumbnail = widget.message.metadata?['thumbnail'];
+            if (thumbnail is Uint8List) {
+              return Image.memory(thumbnail, fit: BoxFit.contain);
+            }
+            return child;
+          },
+          child: child,
+        );
       }
       return child;
     }
@@ -333,117 +390,123 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
                 child: AspectRatio(
                   aspectRatio: _aspectRatio,
                   child: GestureDetector(
-              onTap:
-                  widget.openFullScreenPlayerOnTap
-                      ? () {
-                        Navigator.of(
-                          context,
-                          rootNavigator: widget.useRootNavigator,
-                        ).push(
-                          HeroVideoRoute(
-                            fullscreenDialog: true,
-                            builder:
-                                (_) => FullscreenVideoPlayer(
-                                  source: widget.message.source,
-                                  aspectRatio: _aspectRatio,
-                                  heroTag: widget.message.id,
-                                  backgroundColor:
-                                      widget.fullScreenPlayerBackgroundColor,
-                                  loadingIndicatorColor:
-                                      widget
-                                          .fullScreenPlayerLoadingIndicatorColor ??
-                                      theme.colors.onSurface.withValues(
-                                        alpha: 0.8,
+                    onTap:
+                        widget.openFullScreenPlayerOnTap
+                            ? () {
+                              Navigator.of(
+                                context,
+                                rootNavigator: widget.useRootNavigator,
+                              ).push(
+                                HeroVideoRoute(
+                                  fullscreenDialog: true,
+                                  builder:
+                                      (_) => FullscreenVideoPlayer(
+                                        source: widget.message.source,
+                                        aspectRatio: _aspectRatio,
+                                        heroTag: widget.message.id,
+                                        backgroundColor:
+                                            widget
+                                                .fullScreenPlayerBackgroundColor,
+                                        loadingIndicatorColor:
+                                            widget
+                                                .fullScreenPlayerLoadingIndicatorColor ??
+                                            theme.colors.onSurface.withValues(
+                                              alpha: 0.8,
+                                            ),
                                       ),
                                 ),
-                          ),
-                        );
-                      }
-                      : null,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  useHero(
-                    widget.openFullScreenPlayerOnTap,
-                    child:
-                        widget.message.metadata?['thumbnail'] is Uint8List
-                            ? Image(
-                              image: MemoryImage(
-                                widget.message.metadata!['thumbnail']
-                                    as Uint8List,
-                              ),
-                              fit: BoxFit.fill,
-                            )
-                            : _placeholderProvider != null
-                            ? Image(
-                              image: _placeholderProvider!,
-                              fit: BoxFit.fill,
-                            )
-                            : Container(
-                              color:
-                                  _resolveBackgroundColor(isSentByMe, theme) ??
-                                  theme.colors.surfaceContainerLow,
-                            ),
-                  ),
-                  if (widget.overlay != null) widget.overlay!,
-                  Icon(
-                    widget.playIcon,
-                    size: widget.playIconSize,
-                    color: widget.playIconColor,
-                  ),
-                  if (_chatController is UploadProgressMixin)
-                    StreamBuilder<double>(
-                      stream: (_chatController as UploadProgressMixin)
-                          .getUploadProgress(widget.message.id),
-                      builder: (context, snapshot) {
-                        if (!snapshot.hasData || snapshot.data! >= 1) {
-                          return const SizedBox();
-                        }
+                              );
+                            }
+                            : null,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        useHero(
+                          widget.openFullScreenPlayerOnTap,
+                          child:
+                              widget.message.metadata?['thumbnail'] is Uint8List
+                                  ? Image(
+                                    image: MemoryImage(
+                                      widget.message.metadata!['thumbnail']
+                                          as Uint8List,
+                                    ),
+                                    fit: BoxFit.fill,
+                                  )
+                                  : _placeholderProvider != null
+                                  ? Image(
+                                    image: _placeholderProvider!,
+                                    fit: BoxFit.fill,
+                                  )
+                                  : Container(
+                                    color:
+                                        _resolveBackgroundColor(
+                                          isSentByMe,
+                                          theme,
+                                        ) ??
+                                        theme.colors.surfaceContainerLow,
+                                  ),
+                        ),
+                        if (widget.overlay != null) widget.overlay!,
+                        Icon(
+                          widget.playIcon,
+                          size: widget.playIconSize,
+                          color: widget.playIconColor,
+                        ),
+                        if (_chatController is UploadProgressMixin)
+                          StreamBuilder<double>(
+                            stream: (_chatController as UploadProgressMixin)
+                                .getUploadProgress(widget.message.id),
+                            builder: (context, snapshot) {
+                              if (!snapshot.hasData || snapshot.data! >= 1) {
+                                return const SizedBox();
+                              }
 
-                        return Container(
-                          color:
-                              widget.uploadOverlayColor ??
-                              theme.colors.surfaceContainerLow.withValues(
-                                alpha: 0.5,
-                              ),
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              color:
-                                  widget.uploadIndicatorColor ??
-                                  theme.colors.onSurface.withValues(alpha: 0.8),
-                              strokeCap: StrokeCap.round,
-                              value: snapshot.data,
-                            ),
+                              return Container(
+                                color:
+                                    widget.uploadOverlayColor ??
+                                    theme.colors.surfaceContainerLow.withValues(
+                                      alpha: 0.5,
+                                    ),
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    color:
+                                        widget.uploadIndicatorColor ??
+                                        theme.colors.onSurface.withValues(
+                                          alpha: 0.8,
+                                        ),
+                                    strokeCap: StrokeCap.round,
+                                    value: snapshot.data,
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
+                        if (timeAndStatus != null)
+                          Positioned.directional(
+                            textDirection: textDirection,
+                            bottom: 4,
+                            end:
+                                widget.timeAndStatusPosition ==
+                                            TimeAndStatusPosition.end ||
+                                        widget.timeAndStatusPosition ==
+                                            TimeAndStatusPosition.inline
+                                    ? 8
+                                    : null,
+                            start:
+                                widget.timeAndStatusPosition ==
+                                        TimeAndStatusPosition.start
+                                    ? 8
+                                    : null,
+                            child: timeAndStatus,
+                          ),
+                      ],
                     ),
-                  if (timeAndStatus != null)
-                    Positioned.directional(
-                      textDirection: textDirection,
-                      bottom: 4,
-                      end:
-                          widget.timeAndStatusPosition ==
-                                      TimeAndStatusPosition.end ||
-                                  widget.timeAndStatusPosition ==
-                                      TimeAndStatusPosition.inline
-                              ? 8
-                              : null,
-                      start:
-                          widget.timeAndStatusPosition ==
-                                  TimeAndStatusPosition.start
-                              ? 8
-                              : null,
-                      child: timeAndStatus,
-                    ),
-                ],
+                  ),
+                ),
               ),
             ),
-          ),
+          ],
         ),
-        ),
-      ],
-    ),
       ),
     );
   }
