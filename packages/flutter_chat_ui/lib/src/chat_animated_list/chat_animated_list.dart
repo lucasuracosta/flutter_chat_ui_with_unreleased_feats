@@ -1354,17 +1354,31 @@ class _PrependAwareScrollPosition extends ScrollPositionWithSingleContext {
   }) : _controller = controller;
 
   final _PrependAwareScrollController _controller;
-  double _previousMaxScrollExtent = 0;
 
+  /// Called by [applyContentDimensions] when dimensions change.
+  /// [oldPosition] is the metrics snapshot from before this layout pass;
+  /// [newPosition] reflects the new extents with [pixels] still at the
+  /// pre-correction value.
+  ///
+  /// When frozen, content grew because older messages were prepended.
+  /// We shift pixels by the exact growth so the viewport stays anchored,
+  /// then return false to trigger an immediate relayout from the new offset.
   @override
-  bool applyContentDimensions(double minScrollExtent, double maxScrollExtent) {
-    if (_controller._frozen && hasPixels) {
-      final growth = maxScrollExtent - _previousMaxScrollExtent;
+  bool correctForNewDimensions(
+    ScrollMetrics oldPosition,
+    ScrollMetrics newPosition,
+  ) {
+    if (_controller._frozen) {
+      final growth =
+          newPosition.maxScrollExtent - oldPosition.maxScrollExtent;
       if (growth > 0) {
-        correctBy(growth);
+        // correctPixels (not correctBy) — does NOT set
+        // _didChangeViewportDimensionOrReceiveCorrection, which would
+        // trip the assert inside applyContentDimensions.
+        correctPixels(oldPosition.pixels + growth);
+        return false; // force relayout from the corrected offset
       }
     }
-    _previousMaxScrollExtent = maxScrollExtent;
-    return super.applyContentDimensions(minScrollExtent, maxScrollExtent);
+    return super.correctForNewDimensions(oldPosition, newPosition);
   }
 }
