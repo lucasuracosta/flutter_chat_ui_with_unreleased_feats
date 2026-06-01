@@ -524,6 +524,10 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     return NotificationListener<Notification>(
       onNotification: (notification) {
         if (notification is ScrollMetricsNotification) {
+          // ignore: avoid_print
+          print('📜CS metrics off=${notification.metrics.pixels.toStringAsFixed(1)} '
+              'max=${notification.metrics.maxScrollExtent.toStringAsFixed(1)} '
+              'min=${notification.metrics.minScrollExtent.toStringAsFixed(1)}');
           // Handle initial scroll to bottom so you see latest messages
           _adjustInitialScrollPosition();
           _handleToggleScrollToBottom();
@@ -712,6 +716,10 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     if (!widget.reversed &&
         widget.shouldScrollToEndWhenAtBottom == true &&
         !_userHasScrolled) {
+      // ignore: avoid_print
+      print('📜CS subsequentScrollToEnd JUMP-to-end '
+          'off=${_scrollController.offset.toStringAsFixed(1)} '
+          'max=${_scrollController.position.maxScrollExtent.toStringAsFixed(1)}');
       if (widget.scrollToEndAnimationDuration == Duration.zero) {
         _scrollController.jumpTo(_chatEndScrollPosition);
       } else {
@@ -759,6 +767,8 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
 
   void _scrollToEnd(Message data) {
     if (_isReplacingMessages) return;
+    // ignore: avoid_print
+    print('📜CS scrollToEnd id=${data.id} userScrolled=$_userHasScrolled');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients || !mounted) return;
 
@@ -798,6 +808,13 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
         }
 
         // jump until pixels == maxScrollExtent, i.e. end of the list
+        _diagAdjustCount++;
+        // ignore: avoid_print
+        print('📜CS adjust #$_diagAdjustCount '
+            'off=${_scrollController.offset.toStringAsFixed(1)} '
+            'max=${_scrollController.position.maxScrollExtent.toStringAsFixed(1)} '
+            'min=${_scrollController.position.minScrollExtent.toStringAsFixed(1)} '
+            '${_scrollController.offset == _chatEndScrollPosition ? "SETTLE" : "JUMP"}');
         if (_scrollController.offset == _chatEndScrollPosition) {
           _needsInitialScrollPositionAdjustment = false;
         } else {
@@ -806,6 +823,9 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       }
     });
   }
+
+  // Diagnostic counter for the initial scroll-to-bottom loop.
+  int _diagAdjustCount = 0;
 
   void _handleScrollToBottom() {
     // Trigger callback immediately when button is clicked
