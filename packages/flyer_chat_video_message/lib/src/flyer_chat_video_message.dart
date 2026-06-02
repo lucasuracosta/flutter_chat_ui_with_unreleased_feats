@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:cross_cache/cross_cache.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_chat_core/flutter_chat_core.dart';
 import 'package:provider/provider.dart';
@@ -322,10 +323,13 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
       // Update aspect ratio from thumbnail (has correct EXIF orientation)
       await _updateAspectRatioFromThumbnail(coverImageBytes);
 
-      // Only update state if metadata doesn't already have thumbnail
+      // Only update state if metadata doesn't already have thumbnail.
+      // `coverImageBytes` is non-null here but not promoted inside the closure
+      // (it's a non-final local), so capture it as a final first.
+      final Uint8List bytes = coverImageBytes;
       if (mounted && widget.message.metadata?['thumbnail'] is! Uint8List) {
         setState(() {
-          _placeholderProvider = MemoryImage(coverImageBytes);
+          _placeholderProvider = MemoryImage(bytes);
         });
       }
 
