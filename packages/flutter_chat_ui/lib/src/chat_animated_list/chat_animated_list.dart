@@ -342,6 +342,25 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
         return;
       }
 
+      // Only re-pin to the bottom when the user is actually viewing the
+      // newest messages. `_userHasScrolled` is the list's existing
+      // "viewing newest (false) vs. reading history (true)" flag, maintained
+      // from scroll gestures — the same signal that gates auto-scroll on
+      // incoming messages (see `_subsequentScrollToEnd`).
+      //
+      // We deliberately do NOT read `_isAtChatEndScrollPosition` here: by the
+      // time this post-frame callback runs, `resizeToAvoidBottomInset` has
+      // already shrunk the viewport and grown `maxScrollExtent` by the
+      // keyboard inset, so a user who was at the bottom now reads as "not at
+      // the end" — making a position check unreliable.
+      //
+      // Without this guard, opening the keyboard yanked the content toward
+      // the bottom on every viewport-size change, including while the user
+      // was scrolled up reading history — the jank we are fixing here.
+      if (_userHasScrolled) {
+        return;
+      }
+
       if (widget.scrollToEndAnimationDuration == Duration.zero) {
         _scrollController.jumpTo(
           min(
