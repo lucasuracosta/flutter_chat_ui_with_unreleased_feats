@@ -202,10 +202,21 @@ class _FlyerChatImageMessageState extends State<FlyerChatImageMessage>
     }
     _imageProvider = _targetProvider;
 
+    // TEMP DIAGNOSTIC: are dimensions present at build, or will this bubble
+    // resize after loading the image?
+    debugPrint('📜MEDIA-INIT img id=${widget.message.id} '
+        'w=$width h=$height thumbhash=${widget.message.thumbhash?.isNotEmpty ?? false} '
+        'aspect=${_aspectRatio.toStringAsFixed(3)} '
+        '${(width == null || height == null) ? "WILL-RESIZE" : "fixed"}');
+
     if (width == null || height == null) {
       getImageDimensions(_imageProvider).then((dimensions) {
         if (mounted) {
-          _aspectRatio = dimensions.$1 / dimensions.$2;
+          final newAspect = dimensions.$1 / dimensions.$2;
+          // TEMP DIAGNOSTIC: the post-load aspect-ratio change = the resize.
+          debugPrint('📜MEDIA-RESIZE img id=${widget.message.id} '
+              '${_aspectRatio.toStringAsFixed(3)} -> ${newAspect.toStringAsFixed(3)}');
+          _aspectRatio = newAspect;
           _chatController?.updateMessage(
             widget.message,
             widget.message.copyWith(

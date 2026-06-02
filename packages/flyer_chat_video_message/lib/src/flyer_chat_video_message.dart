@@ -190,6 +190,13 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
       _chatController = null;
     }
 
+    // TEMP DIAGNOSTIC: dimensions present at build, or will this bubble resize?
+    debugPrint('📜MEDIA-INIT vid id=${widget.message.id} '
+        'w=${widget.message.width} h=${widget.message.height} '
+        'thumbhash=${widget.message.thumbhash?.isNotEmpty ?? false} '
+        'metaThumb=${widget.message.metadata?['thumbnail'] is Uint8List} '
+        'aspect=${_aspectRatio.toStringAsFixed(3)}');
+
     // If thumbnail already exists in metadata, update aspect ratio from it
     // (thumbnail will have correct orientation from EXIF data) — unless the
     // caller already supplied reliable width/height (e.g. AspectRatioCorrected-
@@ -238,8 +245,12 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
       final image = frame.image;
 
       if (mounted && image.width > 0 && image.height > 0) {
+        final newAspect = image.width / image.height;
+        // TEMP DIAGNOSTIC: the post-load aspect-ratio change = the resize.
+        debugPrint('📜MEDIA-RESIZE vid id=${widget.message.id} '
+            '${_aspectRatio.toStringAsFixed(3)} -> ${newAspect.toStringAsFixed(3)}');
         setState(() {
-          _aspectRatio = image.width / image.height;
+          _aspectRatio = newAspect;
         });
       }
 
