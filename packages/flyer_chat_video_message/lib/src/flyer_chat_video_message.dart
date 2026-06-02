@@ -286,14 +286,30 @@ class _FlyerChatVideoMessageState extends State<FlyerChatVideoMessage> {
       // Cache miss, generate new thumbnail
     }
 
-    // Generate thumbnail using video_thumbnail
-    // The generated thumbnail will have correct orientation applied
-    final coverImageBytes = await VideoThumbnail.thumbnailData(
-      video: widget.message.source,
-      imageFormat: ImageFormat.WEBP,
-      quality: 25,
-      headers: widget.headers,
-    );
+    // Generate thumbnail using video_thumbnail.
+    // The `video_thumbnail` plugin has no web implementation. On web this call
+    // throws MissingPluginException, and because it is NOT inside the try above
+    // it escapes as an unhandled async error every time a video bubble is
+    // mounted (i.e. while scrolling videos into view), disrupting the web frame
+    // pipeline. Skip it on web — the aspect ratio keeps its initState value
+    // (thumbhash / message dimensions / default) so layout stays stable.
+    if (kIsWeb) return;
+
+    // Guard with try/catch so a plugin failure on any platform degrades to "no
+    // thumbnail" instead of an unhandled error.
+    Uint8List? coverImageBytes;
+    try {
+      // The generated thumbnail will have correct orientation applied
+      coverImageBytes = await VideoThumbnail.thumbnailData(
+        video: widget.message.source,
+        imageFormat: ImageFormat.WEBP,
+        quality: 25,
+        headers: widget.headers,
+      );
+    } catch (e) {
+      debugPrint('Could not generate video thumbnail: ${e.toString()}');
+      return;
+    }
 
     if (coverImageBytes != null) {
       // Cache the generated thumbnail
