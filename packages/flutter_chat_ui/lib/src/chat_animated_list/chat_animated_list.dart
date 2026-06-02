@@ -268,8 +268,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     _scrollController.addListener(() {
       if (!_scrollController.hasClients) return;
       final p = _scrollController.position;
-      // ignore: avoid_print
-      print('📜CS-scroll off=${p.pixels.toStringAsFixed(1)} '
+      debugPrint('📜CS-scroll off=${p.pixels.toStringAsFixed(1)} '
           'max=${p.maxScrollExtent.toStringAsFixed(1)} '
           'min=${p.minScrollExtent.toStringAsFixed(1)} '
           'settled=$_initialScrollSettled');
@@ -562,8 +561,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
         if (notification is ScrollMetricsNotification) {
           // TEMP DIAGNOSTIC: content-height (maxScrollExtent) changes — e.g.
           // when a media message finishes loading and resizes.
-          // ignore: avoid_print
-          print('📜CS-metrics off=${notification.metrics.pixels.toStringAsFixed(1)} '
+          debugPrint('📜CS-metrics off=${notification.metrics.pixels.toStringAsFixed(1)} '
               'max=${notification.metrics.maxScrollExtent.toStringAsFixed(1)} '
               'min=${notification.metrics.minScrollExtent.toStringAsFixed(1)}');
           // Handle initial scroll to bottom so you see latest messages
@@ -725,8 +723,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
       return;
     }
 
-    // ignore: avoid_print
-    print('📜CS-initialScrollToEnd jump');
+    debugPrint('📜CS-initialScrollToEnd jump');
     if (widget.scrollToEndAnimationDuration == Duration.zero) {
       _scrollController.jumpTo(_chatEndScrollPosition);
     } else {
@@ -762,8 +759,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
     if (!widget.reversed &&
         widget.shouldScrollToEndWhenAtBottom == true &&
         !_userHasScrolled) {
-      // ignore: avoid_print
-      print('📜CS-subsequentScrollToEnd jump (id=${data.id})');
+      debugPrint('📜CS-subsequentScrollToEnd jump (id=${data.id})');
       if (widget.scrollToEndAnimationDuration == Duration.zero) {
         _scrollController.jumpTo(_chatEndScrollPosition);
       } else {
@@ -894,8 +890,7 @@ class _ChatAnimatedListState extends State<ChatAnimatedList>
   /// Stops the initial-open adjustment, snaps to the bottom one last time, and
   /// reveals the content.
   void _finishInitialScroll() {
-    // ignore: avoid_print
-    print('📜CS-finish reveal (pinTicks=$_totalPinTicks)');
+    debugPrint('📜CS-finish reveal (pinTicks=$_totalPinTicks)');
     _needsInitialScrollPositionAdjustment = false;
     _initialPinTimer?.cancel();
     _initialPinTimer = null;
